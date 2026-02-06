@@ -1,5 +1,7 @@
-import React, { useMemo, useState } from "react";
+import React, { useMemo, useState, useEffect } from "react";
+import { getSession } from './api/login';
 import { motion } from "framer-motion";
+import { useNavigate } from 'react-router-dom';
 import {
   Bell,
   Calendar,
@@ -23,6 +25,7 @@ import {
 const pad2 = (n) => String(n).padStart(2, "0");
 const ymd = (d) =>
   `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
+const API_BASE = 'http://localhost:4000/api/mentomentee';
 
 function addDays(date, delta) {
   const d = new Date(date);
@@ -1963,7 +1966,37 @@ export default function MentorMenteePlannerApp() {
   const [detailOpen, setDetailOpen] = useState(false);
   const [detailTask, setDetailTask] = useState(null); // { id, text, dateKey ... }
   const [taskDetailsById, setTaskDetailsById] = useState({});
+  const [loading, setLoading] = useState(true);
+  const [user, setUser] = useState(null);
+  const navigate = useNavigate();
   // taskId -> { menteeNote, menteeFiles: [{id,name,size,file}], mentorNote, mentorFiles: [...] }
+
+  useEffect(() => {
+    // 세션 체크 -> 화면 진입 가능
+    let alive = true;
+
+    const checkSession = async() => {
+      try{
+        const res = await getSession();
+        if(!alive) return;
+
+        if(!res.ok){
+          navigate('/login', {replace: true});
+          return; 
+        }
+        setUser(res.data);
+      } catch(e) {
+        navigate('/login', {replace: true});
+      } finally {
+        if (alive) setLoading(false);
+      }
+    }
+    checkSession();
+
+    return () => {
+      alive = false;
+    }
+  }, [])
 
   const [themeId, setThemeId] = useState("white");
   const activeTheme = useMemo(
@@ -1985,6 +2018,9 @@ export default function MentorMenteePlannerApp() {
     () => seedMentees.find((m) => m.id === state.menteeId),
     [state.menteeId],
   );
+
+  if (loading) return <div>로딩 중</div>
+  if (!user) return
 
   return (
     <div
