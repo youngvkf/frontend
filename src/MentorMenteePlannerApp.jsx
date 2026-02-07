@@ -2,6 +2,8 @@ import React, { useMemo, useState, useEffect } from "react";
 import { getSession } from './api/login';
 import { motion } from "framer-motion";
 import { useNavigate } from 'react-router-dom';
+import { getMenteeDashboard } from './api/mentee';
+import { addTodo } from './api/mentee';
 import {
   Bell,
   Calendar,
@@ -25,14 +27,13 @@ import {
 const pad2 = (n) => String(n).padStart(2, "0");
 const ymd = (d) =>
   `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
-const API_BASE = 'http://localhost:4000/api/mentomentee';
 
-function addDays(date, delta) {
+function addDays(date, delta) { // 날짜 이동
   const d = new Date(date);
   d.setDate(d.getDate() + delta);
   return d;
 }
-
+// 해당 날짜의 tasks 중 미완료 개수 계산
 function remainingCountForDate(tasksByDate, dateKey, menteeId) {
   const arr = tasksByDate?.[dateKey] || [];
   return arr.filter((t) => {
@@ -41,7 +42,7 @@ function remainingCountForDate(tasksByDate, dateKey, menteeId) {
   }).length;
 }
 
-function startOfWeek(date) {
+function startOfWeek(date) { 
   // 월요일 시작
   const d = new Date(date);
   const day = d.getDay(); // 0=Sun
@@ -153,7 +154,7 @@ const themes = [
     },
   },
 ];
-
+// 초기 상태 생성
 function buildInitialState() {
   const today = new Date();
   const todayKey = ymd(today);
@@ -427,6 +428,7 @@ function DailyPlanner({
   comment,
   setComment,
   subjects,
+  onAddTodo,
   setSubjects,
 }) {
   const [newTask, setNewTask] = useState("");
@@ -493,16 +495,17 @@ function DailyPlanner({
     const t = newTask.trim();
     if (!t) return;
 
-    setTasks((prev) => [
-      ...prev,
-      {
-        id: `t_${Date.now()}`,
-        text: t,
-        done: false,
-        assignedBy: "self",
-        menteeId: state.menteeId, 
-      },
-    ]);
+    onAddTodo(t);
+    // setTasks((prev) => [
+    //   ...prev,
+    //   {
+    //     id: `t_${Date.now()}`,
+    //     text: t,
+    //     done: false,
+    //     assignedBy: "self",
+    //     menteeId: state.menteeId, 
+    //   },
+    // ]);
 
     setNewTask("");
   };
@@ -826,6 +829,21 @@ function MenteeScreen({ state, setState, onOpenTask }) {
     }));
   };
 
+  const handleAddTodo = async (text) => {
+    try {
+      const res = await addTodo({
+        title,
+        date: dateKey
+      })
+
+      if (res.ok){
+        setTasksForDate((prev) => [...prev, res.data]);
+      }
+    } catch (e){
+      alert('할 일 추가 실패');
+    }
+  }
+
   const openTaskDetail = (task, dateKeyForTask) => {
     setActiveTask({ ...task, dateKey: dateKeyForTask });
     setActiveTaskDateKey(dateKeyForTask);
@@ -994,6 +1012,7 @@ function MenteeScreen({ state, setState, onOpenTask }) {
             comment={comment}
             setComment={setCommentForDate}
             subjects={subjects}
+            onAddTodo={handleAddTodo}
             setSubjects={(updater) =>
               setState((p) => ({
                 ...p,
@@ -1991,7 +2010,20 @@ export default function MentorMenteePlannerApp() {
         if (alive) setLoading(false);
       }
     }
+
+    const loadDashboard = async() => {
+      try {
+        const res = await getMenteeDashboard();
+        if (res.ok){
+          setState(res.data);
+        }
+      } catch(e){
+        console.error(e);
+      }
+    }
+
     checkSession();
+    loadDashboard();
 
     return () => {
       alive = false;
