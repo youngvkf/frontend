@@ -48,6 +48,10 @@ function startOfWeek(date) {
   return d;
 }
 
+function endOfWeek(date) {
+  return addDays(startOfWeek(date), 6);
+}
+
 function startOfMonth(date) {
   const d = new Date(date.getFullYear(), date.getMonth(), 1);
   d.setHours(0, 0, 0, 0);
@@ -65,6 +69,23 @@ function clamp(n, min, max) {
 }
 
 const weekDaysKo = ["월", "화", "수", "목", "금", "토", "일"];
+
+function isImageFile(f) {
+  const typeOk = (f.type || "").startsWith("image/");
+  const nameOk = /\.(png|jpe?g|gif|webp|bmp)$/i.test(f.name || "");
+  return typeOk || nameOk;
+}
+
+function toDetailFiles(fileList) {
+  return Array.from(fileList || []).map((f) => ({
+    id: `file_${Date.now()}_${Math.random().toString(16).slice(2)}`,
+    name: f.name,
+    size: f.size,
+    type: f.type,
+    file: f,
+    previewUrl: isImageFile(f) ? URL.createObjectURL(f) : null,
+  }));
+}
 
 const seedMentees = [
   { id: "m1", name: "민지", grade: "고2", goal: "수학 2시간/일" },
@@ -165,9 +186,15 @@ function buildInitialState() {
           text: "수학 오답노트 1~10",
           done: false,
           assignedBy: "mentor",
-          menteeId: "m1"
+          menteeId: "m1",
         },
-        { id: "t2", text: "영단어 30개", done: true, assignedBy: "self", menteeId: "m1" },
+        {
+          id: "t2",
+          text: "영단어 30개",
+          done: true,
+          assignedBy: "self",
+          menteeId: "m1",
+        },
       ],
     },
     studyByDate: {
@@ -327,12 +354,29 @@ function MonthlyCalendar({
 }) {
   const mStart = startOfMonth(date);
   const mEnd = endOfMonth(date);
-  const startGrid = startOfWeek(mStart);
 
-  const days = useMemo(() => {
+  // 월을 덮는 "주 시작일" 리스트 만들기 (최대 6주까지 가능)
+  const monthWeekStarts = useMemo(() => {
+    const first = startOfWeek(mStart);
+    const last = startOfWeek(mEnd);
+    const out = [];
+    let cursor = new Date(first);
+    while (cursor <= last) {
+      out.push(new Date(cursor));
+      cursor = addDays(cursor, 7);
+    }
+    return out;
+  }, [mStart, mEnd]);
+
+  // 왼쪽 인덱스 상태: month(월 전체) 또는 week(선택 주)
+  const [viewMode, setViewMode] = useState("month"); // "month" | "week"
+  const [selectedWeekIdx, setSelectedWeekIdx] = useState(0);
+
+  // 월 전체 그리드(기존처럼 42칸)
+  const startGrid = startOfWeek(mStart);
+  const days42 = useMemo(() => {
     const out = [];
     let cursor = new Date(startGrid);
-    // 6주(42칸) 고정
     for (let i = 0; i < 42; i++) {
       out.push(new Date(cursor));
       cursor = addDays(cursor, 1);
@@ -343,13 +387,34 @@ function MonthlyCalendar({
   const selectedKey = ymd(date);
   const month = date.getMonth();
 
+  // 주차 클릭 시 보여줄 7일
+  const weekStart = monthWeekStarts[selectedWeekIdx] || startOfWeek(mStart);
+  const weekDays = useMemo(
+    () => Array.from({ length: 7 }, (_, i) => addDays(weekStart, i)),
+    [weekStart],
+  );
+
+  // 주차별 할 일 목록(요일별로 모으기)
+  const weekTasksByDay = useMemo(() => {
+    const out = weekDays.map((d) => {
+      const k = ymd(d);
+      const arr = tasksByDate?.[k] || [];
+      const filtered = arr.filter(
+        (t) => !t.menteeId || t.menteeId === menteeId,
+      );
+      return { date: d, dateKey: k, tasks: filtered };
+    });
+    return out;
+  }, [weekDays, tasksByDate, menteeId]);
+
   return (
     <div className="fixed inset-0 z-50 grid place-items-center bg-black/40 p-4">
       <motion.div
         initial={{ opacity: 0, y: 10, scale: 0.98 }}
         animate={{ opacity: 1, y: 0, scale: 1 }}
-        className="w-full max-w-3xl rounded-3xl bg-white p-6 shadow-xl"
+        className="w-full max-w-5xl rounded-3xl bg-white p-6 shadow-xl"
       >
+        {/* 헤더 */}
         <div className="flex items-center justify-between gap-3">
           <div>
             <div className="text-sm text-black/60">월간 계획표</div>
@@ -365,48 +430,231 @@ function MonthlyCalendar({
           </button>
         </div>
 
-        <div className="mt-5 grid grid-cols-7 gap-2">
-          {weekDaysKo.map((d) => (
-            <div key={d} className="text-center text-xs text-black/60">
-              {d}
-            </div>
-          ))}
-          {days.map((d) => {
-            const k = ymd(d);
-            const remain = remainingCountForDate(tasksByDate, k, menteeId);
-            const inMonth = d.getMonth() === month;
-            const isSelected = k === selectedKey;
-            const disabled = d < mStart || d > mEnd;
-            return (
-              <button
-                key={k}
-                onClick={() => {
-                  if (!disabled) onSelectDate(d);
-                }}
-                className={
-                  "rounded-2xl px-2 py-3 text-sm font-semibold ring-1 transition " +
-                  (isSelected
-                    ? "bg-black text-white ring-black"
-                    : "bg-white hover:bg-black/5 ring-black/10") +
-                  (inMonth ? "" : " opacity-40")
-                }
-                title={k}
-              >
-                <span className="relative inline-block">
-                  {d.getDate()}
-                  {remain > 0 ? (
-                    <span className="absolute -right-3 -top-2 min-w-[18px] rounded-full bg-rose-500 px-1 text-[10px] font-bold leading-4 text-white">
-                      {remain}
-                    </span>
-                  ) : null}
-                </span>
-              </button>
-            );
-          })}
-        </div>
+        {/* 본문: 좌측 인덱스 + 우측 내용 */}
+        <div className="mt-5 grid gap-4 md:grid-cols-12">
+          {/* 좌측 인덱스 */}
+          <div className="md:col-span-3">
+            <div className="rounded-3xl bg-black/3 p-3 ring-1 ring-black/5">
+              <div className="text-sm font-semibold px-2 py-2">인덱스</div>
 
-        <div className="mt-5 text-sm text-black/60">
-          날짜를 선택하면 해당 날짜로 이동합니다.
+              {/* 월(전체) */}
+              <button
+                onClick={() => setViewMode("month")}
+                className={
+                  "w-full text-left rounded-2xl px-4 py-3 ring-1 transition " +
+                  (viewMode === "month"
+                    ? "bg-black text-white ring-black"
+                    : "bg-white ring-black/10 hover:bg-black/5")
+                }
+              >
+                월
+              </button>
+
+              {/* 1~5주차 (월이 포함한 주만 표시) */}
+              <div className="mt-2 space-y-2">
+                {monthWeekStarts.map((ws, idx) => (
+                  <button
+                    key={ymd(ws)}
+                    onClick={() => {
+                      setSelectedWeekIdx(idx);
+                      setViewMode("week");
+                    }}
+                    className={
+                      "w-full text-left rounded-2xl px-4 py-3 ring-1 transition " +
+                      (viewMode === "week" && selectedWeekIdx === idx
+                        ? "bg-black text-white ring-black"
+                        : "bg-white ring-black/10 hover:bg-black/5")
+                    }
+                  >
+                    {idx + 1}주차
+                    <div
+                      className={
+                        "mt-1 text-xs " +
+                        (viewMode === "week" && selectedWeekIdx === idx
+                          ? "text-white/70"
+                          : "text-black/50")
+                      }
+                    >
+                      {ymd(ws)} ~ {ymd(endOfWeek(ws))}
+                    </div>
+                  </button>
+                ))}
+              </div>
+            </div>
+          </div>
+
+          {/* 우측 내용 */}
+          <div className="md:col-span-9">
+            {viewMode === "month" ? (
+              <>
+                {/* 기존 월간 42칸 */}
+                <div className="grid grid-cols-7 gap-2">
+                  {weekDaysKo.map((d) => (
+                    <div key={d} className="text-center text-xs text-black/60">
+                      {d}
+                    </div>
+                  ))}
+
+                  {days42.map((d) => {
+                    const k = ymd(d);
+                    const remain = remainingCountForDate(
+                      tasksByDate,
+                      k,
+                      menteeId,
+                    );
+                    const inMonth = d.getMonth() === month;
+                    const isSelected = k === selectedKey;
+                    const disabled = d < mStart || d > mEnd;
+
+                    return (
+                      <button
+                        key={k}
+                        onClick={() => {
+                          if (!disabled) onSelectDate(d);
+                        }}
+                        className={
+                          "rounded-2xl px-2 py-3 text-sm font-semibold ring-1 transition " +
+                          (isSelected
+                            ? "bg-black text-white ring-black"
+                            : "bg-white hover:bg-black/5 ring-black/10") +
+                          (inMonth ? "" : " opacity-40")
+                        }
+                        title={k}
+                      >
+                        <span className="relative inline-block">
+                          {d.getDate()}
+                          {remain > 0 ? (
+                            <span className="absolute -right-3 -top-2 min-w-[18px] rounded-full bg-rose-500 px-1 text-[10px] font-bold leading-4 text-white">
+                              {remain}
+                            </span>
+                          ) : null}
+                        </span>
+                      </button>
+                    );
+                  })}
+                </div>
+
+                <div className="mt-5 text-sm text-black/60">
+                  날짜를 선택하면 해당 날짜로 이동합니다.
+                </div>
+              </>
+            ) : (
+              <>
+                {/* ✅ 주차 보기: 월~일 칸 */}
+                <div className="rounded-3xl bg-black/3 p-4 ring-1 ring-black/5">
+                  <div className="flex items-center justify-between">
+                    <div className="text-sm font-semibold">
+                      {selectedWeekIdx + 1}주차 ( {ymd(weekStart)} ~{" "}
+                      {ymd(endOfWeek(weekStart))} )
+                    </div>
+                    <button
+                      onClick={() => setViewMode("month")}
+                      className="rounded-2xl bg-white px-3 py-2 text-xs font-semibold ring-1 ring-black/10 hover:bg-black/5"
+                    >
+                      월로 보기
+                    </button>
+                  </div>
+
+                  <div className="mt-3 grid grid-cols-7 gap-2">
+                    {weekDaysKo.map((d) => (
+                      <div
+                        key={d}
+                        className="text-center text-xs text-black/60"
+                      >
+                        {d}
+                      </div>
+                    ))}
+
+                    {weekDays.map((d) => {
+                      const k = ymd(d);
+                      const remain = remainingCountForDate(
+                        tasksByDate,
+                        k,
+                        menteeId,
+                      );
+                      const isSelected = k === selectedKey;
+                      const disabled = d < mStart || d > mEnd;
+
+                      return (
+                        <button
+                          key={k}
+                          onClick={() => {
+                            if (!disabled) onSelectDate(d);
+                          }}
+                          className={
+                            "rounded-2xl px-2 py-3 text-sm font-semibold ring-1 transition " +
+                            (isSelected
+                              ? "bg-black text-white ring-black"
+                              : "bg-white hover:bg-black/5 ring-black/10") +
+                            (disabled ? " opacity-40" : "")
+                          }
+                          title={k}
+                        >
+                          <span className="relative inline-block">
+                            {d.getDate()}
+                            {remain > 0 ? (
+                              <span className="absolute -right-3 -top-2 min-w-[18px] rounded-full bg-rose-500 px-1 text-[10px] font-bold leading-4 text-white">
+                                {remain}
+                              </span>
+                            ) : null}
+                          </span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                {/* ✅ 그 밑: 요일별 할 일 목록 */}
+                <div className="mt-4 space-y-3">
+                  {weekTasksByDay.map(({ date, dateKey, tasks }) => (
+                    <div
+                      key={dateKey}
+                      className="rounded-3xl bg-white p-4 ring-1 ring-black/5"
+                    >
+                      <div className="flex items-center justify-between">
+                        <div className="text-sm font-semibold">
+                          {dateKey} ({weekDaysKo[(date.getDay() + 6) % 7]})
+                        </div>
+                        <div className="text-xs text-black/50">
+                          {tasks.length}개
+                        </div>
+                      </div>
+
+                      {tasks.length === 0 ? (
+                        <div className="mt-2 rounded-2xl bg-black/3 px-3 py-3 text-sm text-black/50">
+                          이 날은 할 일이 없어요.
+                        </div>
+                      ) : (
+                        <div className="mt-2 space-y-2">
+                          {tasks.map((t) => (
+                            <div
+                              key={t.id}
+                              className="rounded-2xl bg-black/3 px-3 py-3"
+                            >
+                              <div
+                                className={
+                                  "text-sm font-semibold " +
+                                  (t.done ? "line-through text-black/40" : "")
+                                }
+                              >
+                                {t.text}
+                              </div>
+                              <div className="mt-1 text-xs text-black/60">
+                                {t.assignedBy === "mentor"
+                                  ? "멘토 과제"
+                                  : "내가 추가"}
+                                {t.done ? " · 완료" : " · 미완료"}
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              </>
+            )}
+          </div>
         </div>
       </motion.div>
     </div>
@@ -425,6 +673,7 @@ function DailyPlanner({
   setComment,
   subjects,
   setSubjects,
+  menteeId,
 }) {
   const [newTask, setNewTask] = useState("");
 
@@ -491,13 +740,13 @@ function DailyPlanner({
     if (!t) return;
 
     setTasks((prev) => [
-      ...prev,
+      ...(prev || []),
       {
         id: `t_${Date.now()}`,
         text: t,
         done: false,
         assignedBy: "self",
-        menteeId: state.menteeId, 
+        menteeId,
       },
     ]);
 
@@ -807,10 +1056,6 @@ function Reminders({
 
 function MenteeScreen({ state, setState, onOpenTask }) {
   const dateKey = ymd(state.selectedDate);
-  // ✅ 상세 모달 상태
-  const [taskDetailOpen, setTaskDetailOpen] = useState(false);
-  const [activeTask, setActiveTask] = useState(null);
-  const [activeTaskDateKey, setActiveTaskDateKey] = useState(null);
 
   const comment = state.menteeCommentByDate?.[dateKey] || "";
   const setCommentForDate = (nextValue) => {
@@ -821,38 +1066,6 @@ function MenteeScreen({ state, setState, onOpenTask }) {
         [dateKey]: nextValue,
       },
     }));
-  };
-
-  const openTaskDetail = (task, dateKeyForTask) => {
-    setActiveTask({ ...task, dateKey: dateKeyForTask });
-    setActiveTaskDateKey(dateKeyForTask);
-    setTaskDetailOpen(true);
-  };
-
-  const closeTaskDetail = () => {
-    setTaskDetailOpen(false);
-    setActiveTask(null);
-    setActiveTaskDateKey(null);
-  };
-
-  const [taskDetailsByKey, setTaskDetailsByKey] = useState({});
-
-  const activeDetailKey =
-    activeTask && activeTaskDateKey
-      ? `${activeTaskDateKey}__${activeTask.id}`
-      : null;
-
-  const activeDetails = activeDetailKey
-    ? taskDetailsByKey[activeDetailKey]
-    : null;
-
-  const setActiveDetails = (updater) => {
-    if (!activeDetailKey) return;
-    setTaskDetailsByKey((prev) => {
-      const cur = prev[activeDetailKey] || {};
-      const next = typeof updater === "function" ? updater(cur) : updater;
-      return { ...prev, [activeDetailKey]: next };
-    });
   };
 
   const tasks = state.tasksByDate[dateKey] || [];
@@ -987,7 +1200,8 @@ function MenteeScreen({ state, setState, onOpenTask }) {
             study={study}
             setStudy={setStudyForDate}
             dateKey={dateKey}
-            onOpenTask={openTaskDetail}
+            menteeId={state.menteeId}
+            onOpenTask={onOpenTask}
             comment={comment}
             setComment={setCommentForDate}
             subjects={subjects}
@@ -1018,7 +1232,7 @@ function MenteeScreen({ state, setState, onOpenTask }) {
                 weekTaskItems.map((t) => (
                   <button
                     key={`${t.dateKey}_${t.id}`}
-                    onClick={() => openTaskDetail(t, t.dateKey)} // ✅ 기존 상세 모달 열기 동일
+                    onClick={() => onOpenTask(t, t.dateKey)}
                     className="w-full text-left rounded-2xl bg-white px-4 py-3 ring-1 ring-black/5 hover:bg-black/5 transition"
                     title="클릭하면 상세페이지"
                   >
@@ -1104,17 +1318,6 @@ function MenteeScreen({ state, setState, onOpenTask }) {
           }}
           tasksByDate={state.tasksByDate}
           menteeId={state.menteeId}
-        />
-      ) : null}
-
-      {taskDetailOpen ? (
-        <TaskDetailModal
-          open={taskDetailOpen}
-          onClose={closeTaskDetail}
-          role={"mentee"} // 멘티 화면이니까 고정
-          task={activeTask}
-          details={activeDetails}
-          setDetails={setActiveDetails}
         />
       ) : null}
     </div>
@@ -1417,11 +1620,12 @@ function TaskDetailModal({ open, onClose, role, task, details, setDetails }) {
   );
 }
 
-function MentorScreen({ state, setState, onOpenTask }) {
+function MentorScreen({ state, setState, onOpenTask, setTaskDetailsByKey }) {
   const [q, setQ] = useState("");
   const [selectedMentee, setSelectedMentee] = useState(state.menteeId);
   const [assignDate, setAssignDate] = useState(ymd(state.selectedDate));
   const [taskText, setTaskText] = useState("");
+  const [assignFiles, setAssignFiles] = useState([]);
 
   const [fbTitle, setFbTitle] = useState("");
   const [fbBody, setFbBody] = useState("");
@@ -1501,15 +1705,19 @@ function MentorScreen({ state, setState, onOpenTask }) {
     if (!text) return;
 
     const targetDate = assignDate;
+
+    // ✅ 과제 객체 먼저 만들기
+    const newTask = {
+      id: `t_${Date.now()}`,
+      text,
+      done: false,
+      assignedBy: "mentor",
+      menteeId: selectedMentee,
+    };
+
+    // ✅ 과제 등록
     setState((prev) => {
       const prevTasks = prev.tasksByDate[targetDate] || [];
-      const newTask = {
-        id: `t_${Date.now()}`,
-        text,
-        done: false,
-        assignedBy: "mentor",
-        menteeId: selectedMentee,
-      };
       return {
         ...prev,
         tasksByDate: {
@@ -1523,7 +1731,24 @@ function MentorScreen({ state, setState, onOpenTask }) {
       };
     });
 
+    // ✅ 여기서 상세(details)에 멘토 파일을 저장 → 상세페이지에서 바로 보임
+    if (assignFiles.length > 0) {
+      const detailKey = `${targetDate}__${newTask.id}`;
+      setTaskDetailsByKey((prev) => {
+        const cur = prev[detailKey] || {};
+        return {
+          ...prev,
+          [detailKey]: {
+            ...cur,
+            mentorFiles: [...(cur.mentorFiles || []), ...assignFiles],
+          },
+        };
+      });
+    }
+
+    // 입력 초기화
     setTaskText("");
+    setAssignFiles([]);
   };
 
   const addFeedback = () => {
@@ -1719,6 +1944,80 @@ function MentorScreen({ state, setState, onOpenTask }) {
                   >
                     <Plus className="h-4 w-4" />
                   </button>
+                </div>
+              </div>
+              <div className="md:col-span-3 mt-3">
+                <div className="mb-1 text-xs text-black/60">
+                  첨부 파일(선택)
+                </div>
+
+                <div className="flex items-center justify-between gap-2">
+                  <label className="inline-flex items-center gap-2 rounded-2xl px-3 py-2 text-sm font-semibold ring-1 bg-white ring-black/10 hover:bg-black/5 cursor-pointer">
+                    <input
+                      type="file"
+                      multiple
+                      className="hidden"
+                      onChange={(e) => {
+                        const files = toDetailFiles(e.target.files);
+                        setAssignFiles((prev) => [...prev, ...files]);
+                        e.target.value = ""; // 같은 파일 다시 선택 가능하게
+                      }}
+                    />
+                    파일 업로드
+                  </label>
+                  <div className="text-xs text-black/50">
+                    {assignFiles.length}개
+                  </div>
+                </div>
+
+                {/* 선택한 파일 미리보기/삭제 */}
+                <div className="mt-2 space-y-2">
+                  {assignFiles.map((f) => (
+                    <div
+                      key={f.id}
+                      className="flex items-center justify-between gap-2 rounded-2xl bg-white px-3 py-2 ring-1 ring-black/5"
+                    >
+                      <div className="flex items-center gap-3 min-w-0">
+                        {f.previewUrl ? (
+                          <img
+                            src={f.previewUrl}
+                            alt={f.name}
+                            className="h-12 w-12 rounded-2xl object-cover ring-1 ring-black/10"
+                          />
+                        ) : (
+                          <div className="h-12 w-12 rounded-2xl bg-black/5 ring-1 ring-black/10 grid place-items-center text-xs text-black/40">
+                            FILE
+                          </div>
+                        )}
+                        <div className="min-w-0">
+                          <div className="truncate text-sm font-semibold">
+                            {f.name}
+                          </div>
+                          <div className="text-xs text-black/50">
+                            {(f.size / 1024).toFixed(1)} KB
+                          </div>
+                        </div>
+                      </div>
+
+                      <button
+                        onClick={() => {
+                          if (f.previewUrl) URL.revokeObjectURL(f.previewUrl);
+                          setAssignFiles((prev) =>
+                            prev.filter((x) => x.id !== f.id),
+                          );
+                        }}
+                        className="rounded-xl px-2 py-1 text-xs font-semibold text-black/60 hover:bg-black/5"
+                      >
+                        삭제
+                      </button>
+                    </div>
+                  ))}
+
+                  {assignFiles.length === 0 ? (
+                    <div className="rounded-2xl bg-white/60 px-3 py-3 text-sm text-black/50 ring-1 ring-black/5">
+                      첨부된 파일이 없어요.
+                    </div>
+                  ) : null}
                 </div>
               </div>
             </div>
@@ -1962,7 +2261,7 @@ export default function MentorMenteePlannerApp() {
   const [state, setState] = useState(buildInitialState);
   const [detailOpen, setDetailOpen] = useState(false);
   const [detailTask, setDetailTask] = useState(null); // { id, text, dateKey ... }
-  const [taskDetailsById, setTaskDetailsById] = useState({});
+  const [taskDetailsByKey, setTaskDetailsByKey] = useState({});
   // taskId -> { menteeNote, menteeFiles: [{id,name,size,file}], mentorNote, mentorFiles: [...] }
 
   const [themeId, setThemeId] = useState("white");
@@ -1972,7 +2271,8 @@ export default function MentorMenteePlannerApp() {
   );
 
   const openTaskDetail = (task, dateKey) => {
-    setDetailTask({ ...task, dateKey });
+    const detailKey = `${dateKey}__${task.id}`;
+    setDetailTask({ ...task, dateKey, detailKey });
     setDetailOpen(true);
   };
 
@@ -2021,6 +2321,7 @@ export default function MentorMenteePlannerApp() {
               state={state}
               setState={setState}
               onOpenTask={openTaskDetail}
+              setTaskDetailsByKey={setTaskDetailsByKey}
             />
           )}
         </motion.div>
@@ -2052,13 +2353,13 @@ export default function MentorMenteePlannerApp() {
         onClose={closeTaskDetail}
         role={role}
         task={detailTask}
-        details={detailTask ? taskDetailsById[detailTask.id] : null}
+        details={detailTask ? taskDetailsByKey[detailTask.detailKey] : null}
         setDetails={(updater) => {
-          if (!detailTask) return;
-          setTaskDetailsById((prev) => {
-            const cur = prev[detailTask.id] || {};
+          if (!detailTask?.detailKey) return;
+          setTaskDetailsByKey((prev) => {
+            const cur = prev[detailTask.detailKey] || {};
             const next = typeof updater === "function" ? updater(cur) : updater;
-            return { ...prev, [detailTask.id]: next };
+            return { ...prev, [detailTask.detailKey]: next };
           });
         }}
       />
