@@ -3,7 +3,7 @@ import { getSession } from './api/login';
 import { motion } from "framer-motion";
 import { useNavigate } from 'react-router-dom';
 import { getMenteeDashboard } from './api/mentee';
-import { addTodo } from './api/mentee';
+import { addTodo, deleteTodo, saveComment, saveStudyTime } from './api/mentee';
 import {
   Bell,
   Calendar,
@@ -25,8 +25,15 @@ import {
 // - 멘토 화면: 담당 멘티 목록, 할 일 등록(멘티+날짜+과제), 피드백 작성
 
 const pad2 = (n) => String(n).padStart(2, "0");
-const ymd = (d) =>
-  `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
+const ymd = (d) => {
+  // 방어: 초기 렌더/비정상 state에서도 앱이 죽지 않게
+  const date =
+    d instanceof Date ? d : d ? new Date(d) : new Date();
+  if (Number.isNaN(date.getTime())) return ymd(new Date());
+  return `${date.getFullYear()}-${pad2(date.getMonth() + 1)}-${pad2(date.getDate())}`;
+};
+const isMongoObjectId = (v) =>
+  typeof v === "string" && /^[a-f\d]{24}$/i.test(v);
 
 function addDays(date, delta) { // 날짜 이동
   const d = new Date(date);
@@ -430,6 +437,8 @@ function DailyPlanner({
   subjects,
   onAddTodo,
   setSubjects,
+  onSaveComment,
+  onSaveStudyTime,
 }) {
   const [newTask, setNewTask] = useState("");
 
@@ -454,6 +463,7 @@ function DailyPlanner({
     }
     setSubjects((prev) => [...(prev || []), name]);
     setStudy((prev) => ({ ...(prev || {}), [name]: 0 }));
+    queueMicrotask(() => onSaveStudyTime?.({ ...(study || {}), [name]: 0 }));
   };
 
   const renameSubject = (oldName, newNameRaw) => {
@@ -472,7 +482,9 @@ function DailyPlanner({
       const cur = prev || {};
       const value = cur[oldName] ?? 0;
       const { [oldName]: _, ...rest } = cur;
-      return { ...rest, [newName]: value };
+      const next = { ...rest, [newName]: value };
+      queueMicrotask(() => onSaveStudyTime?.(next));
+      return next;
     });
   };
 
@@ -481,6 +493,7 @@ function DailyPlanner({
     setStudy((prev) => {
       const cur = prev || {};
       const { [name]: _, ...rest } = cur;
+      queueMicrotask(() => onSaveStudyTime?.(rest));
       return rest;
     });
   };
@@ -495,17 +508,7 @@ function DailyPlanner({
     const t = newTask.trim();
     if (!t) return;
 
-    onAddTodo(t);
-    // setTasks((prev) => [
-    //   ...prev,
-    //   {
-    //     id: `t_${Date.now()}`,
-    //     text: t,
-    //     done: false,
-    //     assignedBy: "self",
-    //     menteeId: state.menteeId, 
-    //   },
-    // ]);
+    onAddTodo(t, null);
 
     setNewTask("");
   };
@@ -517,12 +520,27 @@ function DailyPlanner({
   };
 
   const deleteTask = (id) => {
-    setTasks((prev) => {
-      const target = prev.find((t) => t.id === id);
-      // 멘토가 부여한 과제는 삭제 불가
-      if (target?.assignedBy === "mentor") return prev;
-      return prev.filter((t) => t.id !== id);
-    });
+    const target = (tasks || []).find((t) => t.id === id);
+    // 멘토가 부여한 과제는 삭제 불가
+    if (target?.assignedBy === "mentor") return;
+
+    // 서버에서 삭제 불가로 내려온 케이스
+    if (target?.deletable === false) return;
+
+    // DB에서 내려온 todo(_id)는 서버에도 삭제 요청
+    if (isMongoObjectId(id)) {
+      deleteTodo(id)
+        .then(() => {
+          setTasks((prev) => (prev || []).filter((t) => t.id !== id));
+        })
+        .catch((e) => {
+          alert(String(e?.message || e || "todo 삭제 실패"));
+        });
+      return;
+    }
+
+    // seed/로컬 task는 로컬에서만 제거
+    setTasks((prev) => (prev || []).filter((t) => t.id !== id));
   };
 
   const updateStudy = (subject, minutes) => {
@@ -557,6 +575,7 @@ function DailyPlanner({
         <textarea
           value={comment || ""}
           onChange={(e) => setComment(e.target.value)}
+          onBlur={(e) => onSaveComment?.(e.target.value)}
           rows={3}
           placeholder="예: 영어 지문 2번이 왜 오답인지 설명 부탁해요."
           className="mt-3 w-full rounded-2xl border border-black/10 bg-white px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-black/20"
@@ -629,7 +648,7 @@ function DailyPlanner({
                       {t.assignedBy === "mentor" ? "멘토 과제" : "내가 추가"}
                     </div>
                   </div>
-                  {t.assignedBy !== "mentor" ? (
+                  {t.assignedBy !== "mentor" && t.deletable !== false ? (
                     <button
                       onClick={(e) => {
                         e.stopPropagation();
@@ -694,6 +713,7 @@ function DailyPlanner({
                           max={24}
                           value={h}
                           onChange={(e) => setStudyHM(sub, e.target.value, m)}
+                          onBlur={() => onSaveStudyTime?.(study || {})}
                           className="w-full rounded-xl border border-black/10 bg-white px-2 py-1 text-sm outline-none focus:ring-2 focus:ring-black/20"
                         />
                         <span className="text-xs text-black/60">h</span>
@@ -707,6 +727,7 @@ function DailyPlanner({
                           max={59}
                           value={m}
                           onChange={(e) => setStudyHM(sub, h, e.target.value)}
+                          onBlur={() => onSaveStudyTime?.(study || {})}
                           className="w-full rounded-xl border border-black/10 bg-white px-2 py-1 text-sm outline-none focus:ring-2 focus:ring-black/20"
                         />
                         <span className="text-xs text-black/60">m</span>
@@ -829,18 +850,53 @@ function MenteeScreen({ state, setState, onOpenTask }) {
     }));
   };
 
+  const handleSaveDailyComment = async (content) => {
+    try {
+      await saveComment({ date: dateKey, content });
+    } catch (e) {
+      // UX: 화면은 유지하고, 저장 실패만 알림
+      alert(String(e?.message || e || "코멘트 저장 실패"));
+    }
+  };
+
+  const handleSaveStudyTime = async (minutesBySubject) => {
+    try {
+      await saveStudyTime({ date: dateKey, minutesBySubject });
+    } catch (e) {
+      alert(String(e?.message || e || "공부시간 저장 실패"));
+    }
+  };
+
   const handleAddTodo = async (text) => {
+    console.log('handleAddTodo called with:', text);
     try {
       const res = await addTodo({
-        title,
-        date: dateKey
-      })
-
+        title: text,
+        date: new Date(dateKey).toISOString()
+      });
+      console.log('addTodo response:', res);
       if (res.ok){
-        setTasksForDate((prev) => [...prev, res.data]);
+        console.log('res', res);
+
+        const item = {
+          id: res.data.id,
+          text: res.data.title,
+          done: res.data.isDone,
+          assignedBy: 'self',
+          menteeId: state.menteeId,
+          deletable: true
+        }
+
+        setTasksForDate((prevArr) => {
+          console.log('prevArr is array?', Array.isArray(prevArr), prevArr);
+          return [...prevArr, item];
+        })
+      } else {
+        console.log('server said ok=false', res);
       }
     } catch (e){
-      alert('할 일 추가 실패');
+      console.log('addTodo threw:', e);
+      alert(String(e.message || e));
     }
   }
 
@@ -1011,6 +1067,8 @@ function MenteeScreen({ state, setState, onOpenTask }) {
             onOpenTask={openTaskDetail}
             comment={comment}
             setComment={setCommentForDate}
+            onSaveComment={handleSaveDailyComment}
+            onSaveStudyTime={handleSaveStudyTime}
             subjects={subjects}
             onAddTodo={handleAddTodo}
             setSubjects={(updater) =>
@@ -1994,16 +2052,80 @@ export default function MentorMenteePlannerApp() {
     // 세션 체크 -> 화면 진입 가능
     let alive = true;
 
-    const checkSession = async() => {
-      try{
-        const res = await getSession();
+    const init = async () => {
+      try {
+        const session = await getSession();
         if(!alive) return;
 
-        if(!res.ok){
+        if(!session.ok){
           navigate('/login', {replace: true});
-          return; 
+          return;
         }
-        setUser(res.data);
+
+        setUser(session.data);
+
+        const dash = await getMenteeDashboard();
+        if(!alive) return;
+
+        // ⚠️ dash.data는 화면 prototype state 형태가 아님.
+        // 통째로 덮어쓰면 selectedDate 등 UI state가 날아가 크래시가 납니다.
+        if (dash.ok) {
+          const todos = dash?.data?.todos || [];
+          const dailyCommentsByDate = dash?.data?.dailyCommentsByDate || {};
+          const studyTimeByDate = dash?.data?.studyTime || {};
+
+          setState((prev) => {
+            const tasksByDateFromDb = todos.reduce((acc, t) => {
+              const key = ymd(t.date);
+              const arr = acc[key] || [];
+              arr.push({
+                id: t.id,
+                text: t.title,
+                done: !!t.isDone,
+                assignedBy: "self",
+                menteeId: prev.menteeId,
+                deletable: t.deletable !== false,
+              });
+              acc[key] = arr;
+              return acc;
+            }, {});
+
+            // buildInitialState()의 seed 데이터는 유지하고,
+            // DB에서 내려온 todo는 날짜별로 "추가"해서 같이 보이게 한다.
+            const mergedTasksByDate = Object.keys(tasksByDateFromDb).reduce(
+              (merged, key) => {
+                const prevArr = merged[key] || [];
+                const dbArr = tasksByDateFromDb[key] || [];
+
+                // id 기준으로 중복 제거(초기 seed가 같은 id를 쓰진 않지만, 안정성용)
+                const byId = new Map();
+                for (const t of [...prevArr, ...dbArr]) {
+                  if (!t?.id) continue;
+                  byId.set(t.id, t);
+                }
+
+                merged[key] = [...byId.values()];
+                return merged;
+              },
+              { ...prev.tasksByDate },
+            );
+
+            return {
+              ...prev,
+              dashboard: dash.data,
+              tasksByDate: mergedTasksByDate,
+              studyByDate: {
+                ...(prev.studyByDate || {}),
+                ...(studyTimeByDate || {}),
+              },
+              menteeCommentByDate: {
+                ...(prev.menteeCommentByDate || {}),
+                ...(dailyCommentsByDate || {}),
+              },
+              selectedDate: prev.selectedDate ?? new Date(),
+            };
+          });
+        }
       } catch(e) {
         navigate('/login', {replace: true});
       } finally {
@@ -2011,19 +2133,7 @@ export default function MentorMenteePlannerApp() {
       }
     }
 
-    const loadDashboard = async() => {
-      try {
-        const res = await getMenteeDashboard();
-        if (res.ok){
-          setState(res.data);
-        }
-      } catch(e){
-        console.error(e);
-      }
-    }
-
-    checkSession();
-    loadDashboard();
+    init();
 
     return () => {
       alive = false;
