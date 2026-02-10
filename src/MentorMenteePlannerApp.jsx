@@ -1,8 +1,8 @@
-import React, { useMemo, useState, useEffect } from "react";
+import React, { useMemo, useState, useEffect, useRef } from "react";
 import { getSession, logout as logoutSession, saveThemeId } from './api/login';
 import { motion } from "framer-motion";
 import { useNavigate } from 'react-router-dom';
-import { getMenteeDashboard, addTodo, updateTodo, deleteTodo } from './api/mentee';
+import { getMenteeDashboard, addTodo, updateTodo, deleteTodo, saveStudyTime } from './api/mentee';
 import { SSE_ORIGIN, joinOrigin } from "./api/base";
 import {
   getMyMentees,
@@ -856,6 +856,8 @@ function DailyPlanner({
   const [newTask, setNewTask] = useState("");
 
   const [newTaskSubject, setNewTaskSubject] = useState(subjects?.[0] || "기타");
+  const studySaveTimerRef = useRef(null);
+  const didInitStudySaveRef = useRef(false);
 
   useEffect(() => {
     // subjects가 바뀌면 select 값도 안전하게 보정
@@ -868,6 +870,36 @@ function DailyPlanner({
     if (!study) return 0;
     return Object.values(study).reduce((a, b) => a + (Number(b) || 0), 0);
   }, [study]);
+
+  // 과목별 공부시간은 입력이 잦아서 debounce로 자동 저장
+  useEffect(() => {
+    if (!dateKey || !study) return;
+
+    // 초기 로딩 시 바로 저장 요청이 나가는 건 피한다
+    if (!didInitStudySaveRef.current) {
+      didInitStudySaveRef.current = true;
+      return;
+    }
+
+    if (studySaveTimerRef.current) clearTimeout(studySaveTimerRef.current);
+
+    // 숫자만 정리해서 저장
+    const cleaned = {};
+    for (const [sub, val] of Object.entries(study || {})) {
+      const v = Number(val);
+      cleaned[sub] = Number.isFinite(v) && v >= 0 ? v : 0;
+    }
+
+    studySaveTimerRef.current = setTimeout(() => {
+      saveStudyTime({ date: dateKey, minutesBySubject: cleaned }).catch((e) => {
+        console.error("saveStudyTime failed:", e);
+      });
+    }, 600);
+
+    return () => {
+      if (studySaveTimerRef.current) clearTimeout(studySaveTimerRef.current);
+    };
+  }, [dateKey, study]);
 
   const doneCount = useMemo(
     () => (tasks || []).filter((t) => t.done).length,
@@ -1408,21 +1440,21 @@ function MenteeScreen({
 
   const setStudyForDate = (updater) => {
     setState((prev) => {
-      const byMentee = prev.studyByDate?.[prev.menteeId] || {};
-      const current =
-        byMentee[dateKey] ||
-        seedSubjects.reduce((acc, s) => ({ ...acc, [s]: 0 }));
+      // studyByDate는 { [dateKey]: { [subject]: minutes } } 형태로 통일
+      const subjects = prev.subjects || [];
+      const empty = subjects.reduce((acc, s) => {
+        acc[s] = 0;
+        return acc;
+      }, {});
 
+      const current = prev.studyByDate?.[dateKey] || empty;
       const next = typeof updater === "function" ? updater(current) : updater;
 
       return {
         ...prev,
         studyByDate: {
-          ...prev.studyByDate,
-          [prev.menteeId]: {
-            ...byMentee,
-            [dateKey]: next,
-          },
+          ...(prev.studyByDate || {}),
+          [dateKey]: next,
         },
       };
     });
