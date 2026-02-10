@@ -41,3 +41,24 @@ export const logout = async () => {
         return { ok: false, error: '서버 연결 실패' };
     }
 };
+
+/** 테마 저장 (DB + 세션) */
+export const saveThemeId = async (themeId) => {
+    const res = await fetch(`${API_BASE}/preferences/theme`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ themeId }),
+    });
+
+    const text = await res.text().catch(() => '');
+    let json = null;
+    try { json = text ? JSON.parse(text) : null } catch {}
+
+    if (!res.ok) {
+        const msg = (json && json.error) ? json.error : text;
+        throw new Error(`saveThemeId 실패: ${res.status} ${res.statusText} ${msg || ''}`);
+    }
+
+    return json ?? {};
+};

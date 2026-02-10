@@ -1,8 +1,25 @@
 import React, { useMemo, useState, useEffect } from "react";
-import { getSession } from './api/login';
+import { getSession, logout as logoutSession, saveThemeId } from './api/login';
 import { motion } from "framer-motion";
 import { useNavigate } from 'react-router-dom';
-import { getMenteeDashboard, addTodo, updateTodo } from './api/mentee';
+import { getMenteeDashboard, addTodo, updateTodo, deleteTodo } from './api/mentee';
+import {
+  getMyMentees,
+  getMenteeOverview,
+  assignTodoToMentee,
+  addFeedback as addMentorFeedback,
+  updateFeedback as updateMentorFeedback,
+  deleteFeedback as deleteMentorFeedback,
+} from "./api/mentor";
+import {
+  getTodoDetail,
+  saveMenteeNote,
+  saveMentorFeedback,
+  uploadMenteeFiles,
+  uploadMentorFiles,
+  deleteMenteeFile,
+  deleteMentorFile,
+} from "./api/todoDetail";
 import {
   Bell,
   Calendar,
@@ -260,26 +277,9 @@ function buildInitialState() {
     menteeId: "m1",
     selectedDate: today,
     // 날짜별 데이터
-    tasksByDate: {
-      [todayKey]: [
-        {
-          id: "t1",
-          text: "수학 오답노트 1~10",
-          subject: "수학",
-          done: false,
-          assignedBy: "mentor",
-          menteeId: "m1",
-        },
-        {
-          id: "t2",
-          text: "영단어 30개",
-          subject: "영어",
-          done: true,
-          assignedBy: "self",
-          menteeId: "m1",
-        },
-      ],
-    },
+    tasksByDate: {},
+    mentorTodoFeedback: [],
+    mentorGeneralFeedback: [],
     studyByDate: {
       [todayKey]: {
         국어: 20,
@@ -967,12 +967,24 @@ function DailyPlanner({
   };
 
   const deleteTask = (id) => {
-    setTasks((prev) => {
-      const target = prev.find((t) => t.id === id);
-      // 멘토가 부여한 과제는 삭제 불가
-      if (target?.assignedBy === "mentor") return prev;
-      return prev.filter((t) => t.id !== id);
-    });
+    const idStr = typeof id === "string" ? id : String(id);
+
+    // UI는 먼저 반영 (optimistic)
+    const prevSnapshot = tasks;
+    const target = (tasks || []).find((t) => t.id === id);
+    // 멘토가 부여한 과제는 삭제 불가 (서버도 deletable=false면 막음)
+    if (target?.assignedBy === "mentor") return;
+
+    setTasks((prev) => (prev || []).filter((t) => t.id !== id));
+
+    // DB todo(_id)만 서버에서 삭제
+    if (isMongoObjectId(idStr)) {
+      deleteTodo(idStr).catch((e) => {
+        // 실패 시 롤백
+        if (prevSnapshot) setTasks(prevSnapshot);
+        alert(String(e?.message || e || "todo 삭제 실패"));
+      });
+    }
   };
 
   const updateStudy = (subject, minutes) => {
@@ -1200,10 +1212,7 @@ function DailyPlanner({
             </div>
           </div>
 
-          <div className="mt-3 rounded-2xl bg-white px-3 py-3 text-xs text-black/60 ring-1 ring-black/5">
-            팁: 오늘 계획한 총 공부시간을 먼저 대략 입력하고(과목 분배), 끝나고
-            실제로 수정하면 좋아요.
-          </div>
+
         </div>
       </div>
     </Section>
@@ -1539,11 +1548,6 @@ function MenteeScreen({
 
           {/* ✅ 주간 학습 리포트 */}
           <Section title="주간 학습 리포트" icon={ClipboardList}>
-            <div className="text-xs text-black/60">
-              {ymd(weekStart)} ~ {ymd(addDays(weekStart, 6))} (총{" "}
-              {weekTaskItems.length}개)
-            </div>
-
             <div className="mt-3 space-y-2">
               {weekTaskItems.length === 0 ? (
                 <div className="rounded-2xl bg-black/3 px-3 py-6 text-center text-sm text-black/50">
@@ -1585,29 +1589,6 @@ function MenteeScreen({
               )}
             </div>
           </Section>
-
-          {/* ✅ (3번) 주간 리포트 밑 멘토 피드백 */}
-          <Section title="이번 주 멘토 피드백" icon={MessageSquareText}>
-            <div className="mt-2 space-y-2">
-              {weekFeedbackItems.length === 0 ? (
-                <div className="rounded-2xl bg-black/3 px-3 py-6 text-center text-sm text-black/50">
-                  이번 주에 받은 피드백이 없어요.
-                </div>
-              ) : (
-                weekFeedbackItems.map((f) => (
-                  <div key={f.id} className="rounded-2xl bg-black/3 px-3 py-3">
-                    <div className="flex items-center justify-between gap-2">
-                      <div className="text-sm font-semibold">{f.title}</div>
-                      <div className="text-xs text-black/60">{f.date}</div>
-                    </div>
-                    <div className="mt-2 text-sm text-black/75 whitespace-pre-wrap">
-                      {f.body}
-                    </div>
-                  </div>
-                ))
-              )}
-            </div>
-          </Section>
         </div>
 
         <div className="space-y-6">
@@ -1636,6 +1617,97 @@ function MenteeScreen({
           />
         </div>
       </div>
+
+      {/* ✅ 맨 하단: todo 상세(오답노트) 기반 멘토 피드백(DB) */}
+      <Section title="멘토 피드백" icon={MessageSquareText}>
+        <div className="mt-3 space-y-2">
+          {(state.mentorTodoFeedback || []).length === 0 &&
+          (state.mentorGeneralFeedback || []).length === 0 ? (
+            <div className="rounded-2xl bg-black/3 px-3 py-6 text-center text-sm text-black/50">
+              아직 받은 멘토 피드백이 없어요.
+            </div>
+          ) : (
+            (() => {
+              const todoItems = (state.mentorTodoFeedback || []).map((x) => ({
+                kind: "todo",
+                sortAt: x.updatedAt || null,
+                id: x.id,
+                title: x.title,
+                date: x.dateKey,
+                body: x.mentorFeedback,
+                todoId: x.todoId,
+                category: x.category,
+                isDone: x.isDone,
+                deletable: x.deletable,
+              }));
+
+              const generalItems = (state.mentorGeneralFeedback || []).map((x) => ({
+                kind: "general",
+                sortAt: x.createdAt || null,
+                id: x.id,
+                title: x.title,
+                date: x.date,
+                body: x.body,
+              }));
+
+              const items = [...todoItems, ...generalItems].sort((a, b) => {
+                const ta = a.sortAt ? new Date(a.sortAt).getTime() : 0;
+                const tb = b.sortAt ? new Date(b.sortAt).getTime() : 0;
+                return tb - ta;
+              });
+
+              return items.slice(0, 12).map((f) => {
+                const isTodo = f.kind === "todo";
+                const Wrapper = isTodo ? "button" : "div";
+                const wrapperProps = isTodo
+                  ? {
+                      onClick: () =>
+                        openTaskDetail(
+                          {
+                            id: f.todoId,
+                            text: f.title,
+                            subject: f.category,
+                            done: !!f.isDone,
+                            assignedBy: f.deletable === false ? "mentor" : "self",
+                            menteeId: state.menteeId,
+                            deletable: f.deletable,
+                          },
+                          f.date || ymd(state.selectedDate),
+                        ),
+                      title: "클릭하면 해당 할 일 상세로 이동",
+                    }
+                  : {};
+
+                return (
+                  <Wrapper
+                    key={`${f.kind}_${f.id}`}
+                    {...wrapperProps}
+                    className={
+                      "w-full text-left rounded-2xl bg-white px-4 py-3 ring-1 ring-black/5 " +
+                      (isTodo ? "hover:bg-black/5 transition" : "")
+                    }
+                  >
+                    <div className="flex items-center justify-between gap-2">
+                      <div className="min-w-0">
+                        <div className="text-sm font-semibold truncate">
+                          {f.title}
+                        </div>
+                        <div className="mt-0.5 text-xs text-black/50">
+                          {isTodo ? "과제 피드백" : "일반 피드백"}
+                        </div>
+                      </div>
+                      <div className="text-xs text-black/60">{f.date || "-"}</div>
+                    </div>
+                    <div className="mt-2 text-sm text-black/75 whitespace-pre-wrap line-clamp-2">
+                      {f.body}
+                    </div>
+                  </Wrapper>
+                );
+              });
+            })()
+          )}
+        </div>
+      </Section>
 
       {monthlyOpen ? (
         <MonthlyCalendar
@@ -1676,51 +1748,175 @@ function TaskDetailModal({ open, onClose, role, task, details, setDetails }) {
   const canEditMentee = role === "mentee";
   const canEditMentor = role === "mentor";
 
-  const isImageFile = (f) => {
+  const [loadingDetail, setLoadingDetail] = useState(false);
+  const [savingMentee, setSavingMentee] = useState(false);
+  const [savingMentor, setSavingMentor] = useState(false);
+
+  const isImageLike = (f) => {
     const typeOk = (f.type || "").startsWith("image/");
     const nameOk = /\.(png|jpe?g|gif|webp|bmp)$/i.test(f.name || "");
     return typeOk || nameOk;
   };
 
-  const addFiles = (who, fileList) => {
-    const files = Array.from(fileList || []).map((f) => ({
-      id: `file_${Date.now()}_${Math.random().toString(16).slice(2)}`,
-      name: f.name,
-      size: f.size,
-      type: f.type,
-      file: f,
-      previewUrl: isImageFile(f) ? URL.createObjectURL(f) : null,
-    }));
+  // DB todo(_id)인 경우에만 상세를 서버에서 로드
+  useEffect(() => {
+    let alive = true;
+    if (!open) return () => {};
+    if (!isMongoObjectId(task.id)) return () => {};
 
-    setDetails((p) => {
-      const cur = p || {};
-      const key = who === "mentee" ? "menteeFiles" : "mentorFiles";
-      return { ...cur, [key]: [...(cur[key] || []), ...files] };
-    });
+    setLoadingDetail(true);
+    getTodoDetail({ todoId: task.id })
+      .then((res) => {
+        if (!alive) return;
+        const data = res?.data || {};
+        setDetails((p) => {
+          const cur = p || {};
+          return {
+            ...cur,
+            mentorDesc: data.mentorDesc ?? cur.mentorDesc ?? "",
+            menteeNote: data.menteeNote ?? cur.menteeNote ?? "",
+            mentorFeedback: data.mentorFeedback ?? cur.mentorFeedback ?? "",
+            menteeFiles: data.menteeFiles ?? cur.menteeFiles ?? [],
+            mentorFiles: data.mentorFiles ?? cur.mentorFiles ?? [],
+          };
+        });
+      })
+      .catch((e) => {
+        console.error(e);
+      })
+      .finally(() => {
+        if (alive) setLoadingDetail(false);
+      });
+
+    return () => {
+      alive = false;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, task.id]);
+
+  const addFiles = (who, fileList) => {
+    const files = Array.from(fileList || []);
+    if (files.length === 0) return;
+
+    // seed task(로컬) fallback: 기존처럼 메모리 저장
+    if (!isMongoObjectId(task.id)) {
+      const local = files.map((f) => ({
+        id: `file_${Date.now()}_${Math.random().toString(16).slice(2)}`,
+        name: f.name,
+        size: f.size,
+        type: f.type,
+        file: f,
+        previewUrl: isImageLike({ type: f.type, name: f.name })
+          ? URL.createObjectURL(f)
+          : null,
+      }));
+
+      setDetails((p) => {
+        const cur = p || {};
+        const key = who === "mentee" ? "menteeFiles" : "mentorFiles";
+        return { ...cur, [key]: [...(cur[key] || []), ...local] };
+      });
+      return;
+    }
+
+    const key = who === "mentee" ? "menteeFiles" : "mentorFiles";
+    const uploader = who === "mentee" ? uploadMenteeFiles : uploadMentorFiles;
+
+    uploader({ todoId: task.id, files })
+      .then((res) => {
+        const uploaded = res?.data?.files || [];
+        setDetails((p) => {
+          const cur = p || {};
+          return { ...cur, [key]: [...(cur[key] || []), ...uploaded] };
+        });
+      })
+      .catch((e) => {
+        console.error(e);
+        alert(String(e?.message || e || "파일 업로드 실패"));
+      });
   };
 
   const removeFile = (who, id) => {
-    setDetails((p) => {
-      const cur = p || {};
-      const key = who === "mentee" ? "menteeFiles" : "mentorFiles";
-      const arr = cur[key] || [];
-      const target = arr.find((x) => x.id === id);
+    const key = who === "mentee" ? "menteeFiles" : "mentorFiles";
 
-      if (target?.previewUrl) {
-        URL.revokeObjectURL(target.previewUrl);
-      }
+    // seed/local 파일인 경우
+    if (!isMongoObjectId(task.id)) {
+      setDetails((p) => {
+        const cur = p || {};
+        const arr = cur[key] || [];
+        const target = arr.find((x) => x.id === id);
+        if (target?.previewUrl) URL.revokeObjectURL(target.previewUrl);
+        return { ...cur, [key]: arr.filter((x) => x.id !== id) };
+      });
+      return;
+    }
 
-      return { ...cur, [key]: arr.filter((x) => x.id !== id) };
-    });
+    const deleter = who === "mentee" ? deleteMenteeFile : deleteMentorFile;
+    deleter({ todoId: task.id, fileId: id })
+      .then(() => {
+        setDetails((p) => {
+          const cur = p || {};
+          const arr = cur[key] || [];
+          return { ...cur, [key]: arr.filter((x) => x.id !== id) };
+        });
+      })
+      .catch((e) => {
+        console.error(e);
+        alert(String(e?.message || e || "파일 삭제 실패"));
+      });
   };
 
   const downloadFile = (f) => {
-    const url = URL.createObjectURL(f.file);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = f.name;
-    a.click();
-    setTimeout(() => URL.revokeObjectURL(url), 500);
+    // 서버 파일
+    if (f?.downloadUrl) {
+      const a = document.createElement("a");
+      a.href = f.downloadUrl;
+      a.target = "_blank";
+      a.rel = "noreferrer";
+      a.click();
+      return;
+    }
+
+    // 로컬 파일
+    if (f?.file) {
+      const url = URL.createObjectURL(f.file);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = f.name;
+      a.click();
+      setTimeout(() => URL.revokeObjectURL(url), 500);
+    }
+  };
+
+  const saveMentee = async () => {
+    if (!isMongoObjectId(task.id)) return;
+    if (!canEditMentee) return;
+    setSavingMentee(true);
+    try {
+      await saveMenteeNote({ todoId: task.id, menteeNote: details?.menteeNote || "" });
+    } catch (e) {
+      console.error(e);
+      alert(String(e?.message || e || "저장 실패"));
+    } finally {
+      setSavingMentee(false);
+    }
+  };
+
+  const saveMentor = async () => {
+    if (!isMongoObjectId(task.id)) return;
+    if (!canEditMentor) return;
+    setSavingMentor(true);
+    try {
+      await saveMentorFeedback({
+        todoId: task.id,
+        mentorFeedback: details?.mentorFeedback || "",
+      });
+    } catch (e) {
+      console.error(e);
+      alert(String(e?.message || e || "저장 실패"));
+    } finally {
+      setSavingMentor(false);
+    }
   };
 
   return (
@@ -1778,6 +1974,24 @@ function TaskDetailModal({ open, onClose, role, task, details, setDetails }) {
               }
             />
 
+            <div className="mt-2 flex items-center justify-between gap-2">
+              <div className="text-xs text-black/50">
+                {loadingDetail ? "불러오는 중..." : " "}
+              </div>
+              <button
+                onClick={saveMentee}
+                disabled={!canEditMentee || !isMongoObjectId(task.id) || savingMentee}
+                className={
+                  "rounded-2xl px-3 py-2 text-xs font-semibold ring-1 " +
+                  (canEditMentee && isMongoObjectId(task.id)
+                    ? "bg-white ring-black/10 hover:bg-black/5"
+                    : "bg-white/60 ring-black/5 opacity-60 cursor-not-allowed")
+                }
+              >
+                {savingMentee ? "저장 중..." : "저장"}
+              </button>
+            </div>
+
             <div className="mt-3 flex items-center justify-between gap-2">
               <label
                 className={
@@ -1792,7 +2006,10 @@ function TaskDetailModal({ open, onClose, role, task, details, setDetails }) {
                   multiple
                   disabled={!canEditMentee}
                   className="hidden"
-                  onChange={(e) => addFiles("mentee", e.target.files)}
+                  onChange={(e) => {
+                    addFiles("mentee", e.target.files);
+                    e.target.value = "";
+                  }}
                 />
                 파일 업로드
               </label>
@@ -1808,12 +2025,12 @@ function TaskDetailModal({ open, onClose, role, task, details, setDetails }) {
                   className="flex items-center justify-between gap-2 rounded-2xl bg-white px-3 py-2 ring-1 ring-black/5"
                 >
                   <div className="flex items-center gap-3 min-w-0">
-                    {f.previewUrl ? (
+                    {isImageLike(f) && (f.previewUrl || f.url) ? (
                       <img
-                        src={f.previewUrl}
+                        src={f.previewUrl || f.url}
                         alt={f.name}
                         className="h-14 w-14 rounded-2xl object-cover ring-1 ring-black/10"
-                        onClick={() => window.open(f.previewUrl, "_blank")}
+                        onClick={() => window.open(f.previewUrl || f.url, "_blank")}
                         style={{ cursor: "pointer" }}
                       />
                     ) : (
@@ -1899,6 +2116,22 @@ function TaskDetailModal({ open, onClose, role, task, details, setDetails }) {
               }
             />
 
+            <div className="mt-2 flex items-center justify-between gap-2">
+              <div className="text-xs text-black/50">{loadingDetail ? "불러오는 중..." : " "}</div>
+              <button
+                onClick={saveMentor}
+                disabled={!canEditMentor || !isMongoObjectId(task.id) || savingMentor}
+                className={
+                  "rounded-2xl px-3 py-2 text-xs font-semibold ring-1 " +
+                  (canEditMentor && isMongoObjectId(task.id)
+                    ? "bg-white ring-black/10 hover:bg-black/5"
+                    : "bg-white/60 ring-black/5 opacity-60 cursor-not-allowed")
+                }
+              >
+                {savingMentor ? "저장 중..." : "저장"}
+              </button>
+            </div>
+
             <div className="mt-3 flex items-center justify-between gap-2">
               <label
                 className={
@@ -1913,7 +2146,10 @@ function TaskDetailModal({ open, onClose, role, task, details, setDetails }) {
                   multiple
                   disabled={!canEditMentor}
                   className="hidden"
-                  onChange={(e) => addFiles("mentor", e.target.files)}
+                  onChange={(e) => {
+                    addFiles("mentor", e.target.files);
+                    e.target.value = "";
+                  }}
                 />
                 파일 첨부
               </label>
@@ -1929,12 +2165,12 @@ function TaskDetailModal({ open, onClose, role, task, details, setDetails }) {
                   className="flex items-center justify-between gap-2 rounded-2xl bg-white px-3 py-2 ring-1 ring-black/5"
                 >
                   <div className="flex items-center gap-3 min-w-0">
-                    {f.previewUrl ? (
+                    {isImageLike(f) && (f.previewUrl || f.url) ? (
                       <img
-                        src={f.previewUrl}
+                        src={f.previewUrl || f.url}
                         alt={f.name}
                         className="h-14 w-14 rounded-2xl object-cover ring-1 ring-black/10"
-                        onClick={() => window.open(f.previewUrl, "_blank")}
+                        onClick={() => window.open(f.previewUrl || f.url, "_blank")}
                         style={{ cursor: "pointer" }}
                       />
                     ) : (
@@ -1982,8 +2218,9 @@ function TaskDetailModal({ open, onClose, role, task, details, setDetails }) {
 
         <div className="px-6 pb-6">
           <div className="rounded-2xl bg-black/3 px-4 py-3 text-xs text-black/60">
-            지금은 UI 프로토타입이라 파일/텍스트가 브라우저 메모리에만 저장돼요.
-            나중에 백엔드 연결 시 DB/S3 같은 곳으로 저장하도록 바꾸면 됩니다.
+            {isMongoObjectId(task.id)
+              ? "이제 텍스트/파일이 DB + 서버 파일로 저장됩니다."
+              : "시드(예시) 할 일은 아직 로컬에서만 저장됩니다."}
           </div>
         </div>
       </div>
@@ -1993,7 +2230,13 @@ function TaskDetailModal({ open, onClose, role, task, details, setDetails }) {
 
 function MentorScreen({ state, setState, onOpenTask, setTaskDetailsByKey }) {
   const [q, setQ] = useState("");
-  const [selectedMentee, setSelectedMentee] = useState(state.menteeId);
+  const [menteeList, setMenteeList] = useState([]); // [{id, loginId, username}]
+  const [menteesLoading, setMenteesLoading] = useState(true);
+  const [selectedMentee, setSelectedMentee] = useState(null); // DB userId (string)
+  const [overviewLoading, setOverviewLoading] = useState(false);
+  const [todos, setTodos] = useState([]); // DB todos (for range)
+  const [feedback, setFeedback] = useState([]); // DB feedback list
+  const [assigning, setAssigning] = useState(false);
 
   const [taskText, setTaskText] = useState("");
   const [taskDetail, setTaskDetail] = useState(""); // ✅ 세부 내용(설명)
@@ -2008,52 +2251,120 @@ function MentorScreen({ state, setState, onOpenTask, setTaskDetailsByKey }) {
   const [taskSubject, setTaskSubject] = useState(
     subjectsForSelect[0] || "기타",
   );
-  const assignDate = selectedDate;
+  const [assignDate, setAssignDate] = useState(selectedDate);
   const [assignFiles, setAssignFiles] = useState([]);
+
+  // 상단 날짜를 바꾸면 과제 부여 날짜도 기본값으로 같이 따라가게
+  useEffect(() => {
+    setAssignDate(selectedDate);
+  }, [selectedDate]);
 
   const [editingFeedbackId, setEditingFeedbackId] = useState(null);
   const [editTitle, setEditTitle] = useState("");
   const [editBody, setEditBody] = useState("");
 
-  const selectedMenteeInfo = seedMentees.find((m) => m.id === selectedMentee);
+  // 멘토의 담당 멘티 목록 로딩
+  useEffect(() => {
+    let alive = true;
+    setMenteesLoading(true);
+    getMyMentees()
+      .then((res) => {
+        if (!alive) return;
+        const list = res?.data || [];
+        setMenteeList(list);
+        // 최초 1회: 선택 멘티 자동 지정
+        if (!selectedMentee && list.length > 0) setSelectedMentee(list[0].id);
+      })
+      .catch((e) => {
+        console.error(e);
+        if (alive) setMenteeList([]);
+      })
+      .finally(() => {
+        if (alive) setMenteesLoading(false);
+      });
+    return () => {
+      alive = false;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
-  const selectedMenteeTasks = useMemo(() => {
-    const entries = Object.entries(state.tasksByDate || {});
-
-    const all = entries.flatMap(([dateKey, arr]) =>
-      (arr || [])
-        .filter(
-          (t) => t.menteeId === selectedMentee && dateKey === selectedDate, // ✅ 날짜 필터
-        )
-        .map((t) => ({ ...t, dateKey })),
-    );
-
-    // 선택 날짜만이니 정렬은 없어도 되지만, 놔둬도 OK
-    all.sort((a, b) => b.dateKey.localeCompare(a.dateKey));
-    return all;
-  }, [state.tasksByDate, selectedMentee, selectedDate]); // ✅ 의존성에 selectedDate 추가
+  const selectedMenteeInfo = useMemo(
+    () => (menteeList || []).find((m) => m.id === selectedMentee) || null,
+    [menteeList, selectedMentee],
+  );
 
   // ✅ 선택 날짜 기준 주 시작/끝 계산
   const weekStart = startOfWeek(new Date(selectedDate));
   const weekEnd = addDays(weekStart, 6);
+  const weekStartKey = ymd(weekStart);
+  const weekEndKey = ymd(weekEnd);
+
+  // 선택 멘티의 overview(todos/feedback) 로딩: 선택 주 범위
+  useEffect(() => {
+    if (!selectedMentee) return;
+    let alive = true;
+    setOverviewLoading(true);
+
+    getMenteeOverview({
+      menteeId: selectedMentee,
+      start: weekStartKey,
+      end: weekEndKey,
+    })
+      .then((res) => {
+        if (!alive) return;
+        const data = res?.data || {};
+        setTodos(data.todos || []);
+        setFeedback(data.feedback || []);
+      })
+      .catch((e) => {
+        console.error(e);
+        if (!alive) return;
+        setTodos([]);
+        setFeedback([]);
+      })
+      .finally(() => {
+        if (alive) setOverviewLoading(false);
+      });
+
+    return () => {
+      alive = false;
+    };
+  }, [selectedMentee, weekStartKey, weekEndKey]);
+
+  const selectedMenteeTasks = useMemo(() => {
+    const list = todos || [];
+    return list
+      .filter((t) => ymd(new Date(t.date)) === selectedDate)
+      .map((t) => ({
+        id: String(t.id),
+        text: t.title,
+        subject: t.category ?? "기타",
+        done: !!t.isDone,
+        assignedBy: t.deletable === false ? "mentor" : "self",
+        menteeId: selectedMentee,
+        dateKey: selectedDate,
+        deletable: t.deletable,
+      }));
+  }, [todos, selectedDate, selectedMentee]);
 
   // ✅ 그 주의 "미완료" 할 일 목록
   const weekUndoneTasks = useMemo(() => {
-    const entries = Object.entries(state.tasksByDate || {});
-
-    return entries.flatMap(([dateKey, arr]) => {
-      const d = new Date(dateKey);
-      if (d < weekStart || d > weekEnd) return [];
-
-      return (arr || [])
-        .filter(
-          (t) =>
-            t.menteeId === selectedMentee && // 선택 멘티
-            !t.done, // 미완료
-        )
-        .map((t) => ({ ...t, dateKey }));
-    });
-  }, [state.tasksByDate, selectedMentee, selectedDate]);
+    return (todos || [])
+      .filter((t) => {
+        const k = ymd(new Date(t.date));
+        return k >= weekStartKey && k <= weekEndKey && !t.isDone;
+      })
+      .map((t) => ({
+        id: String(t.id),
+        text: t.title,
+        subject: t.category ?? "기타",
+        done: !!t.isDone,
+        assignedBy: t.deletable === false ? "mentor" : "self",
+        menteeId: selectedMentee,
+        dateKey: ymd(new Date(t.date)),
+        deletable: t.deletable,
+      }));
+  }, [todos, selectedMentee, weekStartKey, weekEndKey]);
 
   useEffect(() => {
     const list = state.subjects?.length ? state.subjects : seedSubjects;
@@ -2064,16 +2375,14 @@ function MentorScreen({ state, setState, onOpenTask, setTaskDetailsByKey }) {
   }, [state.subjects, selectedMentee]);
 
   const deleteFeedback = (id) => {
-    setState((prev) => {
-      const arr = prev.feedbackByMentee[selectedMentee] || [];
-      return {
-        ...prev,
-        feedbackByMentee: {
-          ...prev.feedbackByMentee,
-          [selectedMentee]: arr.filter((f) => f.id !== id),
-        },
-      };
-    });
+    deleteMentorFeedback({ feedbackId: id })
+      .then(() => {
+        setFeedback((prev) => (prev || []).filter((f) => f.id !== id));
+      })
+      .catch((e) => {
+        console.error(e);
+        alert(String(e?.message || e || "피드백 삭제 실패"));
+      });
   };
 
   const startEditFeedback = (f) => {
@@ -2087,86 +2396,101 @@ function MentorScreen({ state, setState, onOpenTask, setTaskDetailsByKey }) {
     const body = editBody.trim();
     if (!title || !body) return;
 
-    setState((prev) => {
-      const arr = prev.feedbackByMentee[selectedMentee] || [];
-      return {
-        ...prev,
-        feedbackByMentee: {
-          ...prev.feedbackByMentee,
-          [selectedMentee]: arr.map((f) =>
-            f.id === editingFeedbackId ? { ...f, title, body } : f,
-          ),
-        },
-      };
-    });
-
-    setEditingFeedbackId(null);
-    setEditTitle("");
-    setEditBody("");
+    updateMentorFeedback({ feedbackId: editingFeedbackId, title, body })
+      .then((res) => {
+        const item = res?.data;
+        if (item?.id) {
+          setFeedback((prev) =>
+            (prev || []).map((f) => (f.id === item.id ? item : f)),
+          );
+        }
+        setEditingFeedbackId(null);
+        setEditTitle("");
+        setEditBody("");
+      })
+      .catch((e) => {
+        console.error(e);
+        alert(String(e?.message || e || "피드백 수정 실패"));
+      });
   };
 
-  const mentees = useMemo(() => {
+  const filteredMentees = useMemo(() => {
     const qq = q.trim().toLowerCase();
-    if (!qq) return seedMentees;
-    return seedMentees.filter((m) =>
-      `${m.name} ${m.grade} ${m.goal}`.toLowerCase().includes(qq),
+    const list = menteesLoading ? [] : (menteeList || []);
+    if (!qq) return list;
+    return list.filter((m) =>
+      `${m.username} ${m.loginId}`.toLowerCase().includes(qq),
     );
-  }, [q]);
+  }, [q, menteeList, menteesLoading]);
 
-  const addAssignment = () => {
+  const addAssignment = async () => {
     const text = taskText.trim();
     if (!text) return;
 
-    const targetDate = assignDate;
-
-    // ✅ 과제 객체 먼저 만들기 (id가 필요해서)
-    const newTask = {
-      id: `t_${Date.now()}`,
-      text,
-      subject: taskSubject,
-      done: false,
-      assignedBy: "mentor",
-      menteeId: selectedMentee,
-    };
-
-    // ✅ 과제 등록
-    setState((prev) => {
-      const prevTasks = prev.tasksByDate[targetDate] || [];
-      return {
-        ...prev,
-        tasksByDate: {
-          ...prev.tasksByDate,
-          [targetDate]: [...prevTasks, newTask],
-        },
-        assignedTasks: [
-          { ...newTask, date: targetDate },
-          ...prev.assignedTasks,
-        ],
-      };
-    });
-    //  상세 저장 로직 (멘토 첨부파일을 상세페이지에 바로 보이게 저장)
-    // ✅ addAssignment 안에서 (과제 등록 직후)
-    const detailKey = `${targetDate}__${newTask.id}`;
-    const detailText = taskDetail.trim();
-
-    if (detailText || assignFiles.length > 0) {
-      setTaskDetailsByKey((prev) => {
-        const cur = prev[detailKey] || {};
-        return {
-          ...prev,
-          [detailKey]: {
-            ...cur,
-            mentorDesc: detailText || cur.mentorDesc || "", // ✅ 모달에서 읽는 필드
-            mentorFiles: [...(cur.mentorFiles || []), ...assignFiles], // ✅ 딱 1번만
-          },
-        };
-      });
+    if (!selectedMentee) {
+      alert("담당 멘티를 선택해주세요.");
+      return;
     }
 
-    // 입력 초기화
-    setTaskText("");
-    setTaskDetail("");
-    setAssignFiles([]);
+    const targetDate = assignDate; // YYYY-MM-DD
+
+    if (assigning) return;
+    setAssigning(true);
+
+    try {
+      const detailText = taskDetail.trim();
+
+      const res = await assignTodoToMentee({
+        menteeId: selectedMentee,
+        title: text,
+        date: targetDate,
+        subject: taskSubject,
+        mentorDesc: detailText,
+      });
+
+      const item = res?.data;
+      if (item?.id) {
+        // 현재 로딩 범위(주) 안이면 로컬 목록에 즉시 반영
+        setTodos((prev) => [...(prev || []), item]);
+
+        // 멘토 세부 내용은 서버에 저장되지만, 즉시 UI에서도 보이게(선택)
+        if (detailText) {
+          const detailKey = `${targetDate}__${item.id}`;
+          setTaskDetailsByKey((prev) => {
+            const cur = prev[detailKey] || {};
+            return {
+              ...prev,
+              [detailKey]: {
+                ...cur,
+                mentorDesc: detailText || cur.mentorDesc || "",
+              },
+            };
+          });
+        }
+
+        // ✅ 과제 부여 시 첨부 파일 업로드(멘토 전용) -> todo 상세에 저장
+        if (assignFiles.length > 0) {
+          const fileObjs = assignFiles.map((f) => f.file).filter(Boolean);
+          if (fileObjs.length > 0) {
+            await uploadMentorFiles({ todoId: item.id, files: fileObjs });
+          }
+
+          // 로컬 미리보기 URL 정리
+          for (const f of assignFiles) {
+            if (f.previewUrl) URL.revokeObjectURL(f.previewUrl);
+          }
+        }
+      }
+
+      setTaskText("");
+      setTaskDetail("");
+      setAssignFiles([]);
+    } catch (e) {
+      console.error(e);
+      alert(String(e?.message || e || "과제 저장/업로드 실패"));
+    } finally {
+      setAssigning(false);
+    }
   };
 
   const addFeedback = () => {
@@ -2174,29 +2498,26 @@ function MentorScreen({ state, setState, onOpenTask, setTaskDetailsByKey }) {
     const body = fbBody.trim();
     if (!title || !body) return;
 
-    setState((prev) => {
-      const arr = prev.feedbackByMentee[selectedMentee] || [];
-      const item = {
-        id: `f_${Date.now()}`,
-        date: ymd(prev.selectedDate),
-        title,
-        body,
-      };
-      return {
-        ...prev,
-        feedbackByMentee: {
-          ...prev.feedbackByMentee,
-          [selectedMentee]: [item, ...arr],
-        },
-      };
-    });
+    if (!selectedMentee) {
+      alert("담당 멘티를 선택해주세요.");
+      return;
+    }
 
-    setFbTitle("");
-    setFbBody("");
+    addMentorFeedback({ menteeId: selectedMentee, date: selectedDate, title, body })
+      .then((res) => {
+        const item = res?.data;
+        if (item?.id) setFeedback((prev) => [item, ...(prev || [])]);
+        setFbTitle("");
+        setFbBody("");
+      })
+      .catch((e) => {
+        console.error(e);
+        alert(String(e?.message || e || "피드백 저장 실패"));
+      });
   };
 
-  const activeMentee = seedMentees.find((m) => m.id === selectedMentee);
-  const feedbackList = state.feedbackByMentee[selectedMentee] || [];
+  const activeMentee = selectedMenteeInfo;
+  const feedbackList = feedback || [];
 
   return (
     <div className="space-y-6">
@@ -2211,7 +2532,7 @@ function MentorScreen({ state, setState, onOpenTask, setTaskDetailsByKey }) {
           <input
             value={q}
             onChange={(e) => setQ(e.target.value)}
-            placeholder="멘티 검색 (이름/학년/목표)"
+            placeholder="멘티 검색 (이름/아이디)"
             className="w-72 max-w-[60vw] bg-transparent text-sm outline-none"
           />
         </div>
@@ -2227,13 +2548,20 @@ function MentorScreen({ state, setState, onOpenTask, setTaskDetailsByKey }) {
         </div>
       </div>
 
-      <div className="text-xs text-black/60">선택 날짜: {selectedDate}</div>
-
       <div className="grid gap-6 lg:grid-cols-3">
         <div className="lg:col-span-1 space-y-6">
           <Section title="담당 멘티 목록" icon={Users}>
             <div className="space-y-2">
-              {mentees.map((m) => {
+              {menteesLoading ? (
+                <div className="rounded-2xl bg-black/3 px-3 py-6 text-center text-sm text-black/50">
+                  담당 멘티 불러오는 중...
+                </div>
+              ) : filteredMentees.length === 0 ? (
+                <div className="rounded-2xl bg-black/3 px-3 py-6 text-center text-sm text-black/50">
+                  담당 멘티가 없어요. (시드 계정이면 `seedUser`로 mentorId가 연결됐는지 확인)
+                </div>
+              ) : (
+                filteredMentees.map((m) => {
                 const active = m.id === selectedMentee;
                 return (
                   <button
@@ -2247,14 +2575,14 @@ function MentorScreen({ state, setState, onOpenTask, setTaskDetailsByKey }) {
                     }
                   >
                     <div className="flex items-center justify-between">
-                      <div className="text-sm font-semibold">{m.name}</div>
+                      <div className="text-sm font-semibold">{m.username}</div>
                       <div
                         className={
                           "text-xs " +
                           (active ? "text-white/70" : "text-black/50")
                         }
                       >
-                        {m.grade}
+                        {m.loginId}
                       </div>
                     </div>
                     <div
@@ -2263,23 +2591,16 @@ function MentorScreen({ state, setState, onOpenTask, setTaskDetailsByKey }) {
                         (active ? "text-white/70" : "text-black/60")
                       }
                     >
-                      목표: {m.goal}
+                      계정: {m.loginId}
                     </div>
                   </button>
                 );
-              })}
+              })
+              )}
             </div>
 
-            <div className="mt-4 rounded-2xl bg-black/3 px-4 py-3 text-xs text-black/60">
-              이 목록은 예시 데이터입니다. 실제로는 멘토 계정의 “담당 멘티”를
-              서버에서 불러옵니다.
-            </div>
           </Section>
           <Section title="이번 주 미완료 할 일" icon={ListChecks}>
-            <div className="text-xs text-black/60 mb-2">
-              {ymd(weekStart)} ~ {ymd(weekEnd)} 기준
-            </div>
-
             {weekUndoneTasks.length === 0 ? (
               <div className="rounded-2xl bg-black/3 px-3 py-6 text-center text-sm text-black/50">
                 🎉 이번 주에 미완료된 할 일이 없어요.
@@ -2320,11 +2641,12 @@ function MentorScreen({ state, setState, onOpenTask, setTaskDetailsByKey }) {
                 <div className="md:col-span-2">
                   <div className="rounded-2xl bg-black/3 px-4 py-3 text-sm ring-1 ring-black/5">
                     <div className="font-semibold">
-                      {selectedMenteeInfo?.name} ({selectedMenteeInfo?.grade})
+                      {selectedMenteeInfo?.username || "멘티 선택"}{" "}
+                      {selectedMenteeInfo?.loginId ? `(${selectedMenteeInfo.loginId})` : ""}
                     </div>
-                    <div className="text-xs text-black/60">
-                      목표: {selectedMenteeInfo?.goal}
-                    </div>
+                  {overviewLoading ? (
+                    <div className="text-xs text-black/60">불러오는 중...</div>
+                  ) : null}
                   </div>
 
                   <div className="mt-4 space-y-2">
@@ -2354,8 +2676,7 @@ function MentorScreen({ state, setState, onOpenTask, setTaskDetailsByKey }) {
                           </div>
                           <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-black/60">
                             <span>
-                              상태: {t.done ? "완료" : "미완료"} · 클릭해서
-                              제출/피드백 보기
+                      {t.done ? "완료" : "미완료"}
                             </span>
 
                             {t.subject ? (
@@ -2376,13 +2697,18 @@ function MentorScreen({ state, setState, onOpenTask, setTaskDetailsByKey }) {
               <div>
                 <div className="mb-1 text-xs text-black/60">학생 선택</div>
                 <select
-                  value={selectedMentee}
+                  value={selectedMentee || ""}
                   onChange={(e) => setSelectedMentee(e.target.value)}
                   className="w-full rounded-2xl border border-black/10 bg-white px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-black/20"
                 >
-                  {seedMentees.map((m) => (
+                  {menteeList.length === 0 ? (
+                    <option value="" disabled>
+                      담당 멘티 없음
+                    </option>
+                  ) : null}
+                  {(menteeList || []).map((m) => (
                     <option key={m.id} value={m.id}>
-                      {m.name} ({m.grade})
+                      {m.username} ({m.loginId})
                     </option>
                   ))}
                 </select>
@@ -2427,7 +2753,11 @@ function MentorScreen({ state, setState, onOpenTask, setTaskDetailsByKey }) {
                   />
                   <button
                     onClick={addAssignment}
-                    className="grid h-10 w-10 place-items-center rounded-2xl bg-black text-white"
+                    disabled={assigning}
+                    className={
+                      "grid h-10 w-10 place-items-center rounded-2xl text-white " +
+                      (assigning ? "bg-black/40 cursor-not-allowed" : "bg-black")
+                    }
                     title="등록"
                   >
                     <Plus className="h-4 w-4" />
@@ -2532,7 +2862,7 @@ function MentorScreen({ state, setState, onOpenTask, setTaskDetailsByKey }) {
                   </div>
                 ) : (
                   state.assignedTasks.slice(0, 5).map((t) => {
-                    const m = seedMentees.find((x) => x.id === t.menteeId);
+                    const m = (menteeList || []).find((x) => x.id === t.menteeId);
                     return (
                       <div
                         key={`${t.id}_${t.date}`}
@@ -2543,7 +2873,7 @@ function MentorScreen({ state, setState, onOpenTask, setTaskDetailsByKey }) {
                           <div className="text-xs text-black/60">{t.date}</div>
                         </div>
                         <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-black/60">
-                          <span>대상: {m?.name || "-"}</span>
+                          <span>대상: {m?.username || "-"}</span>
 
                           {t.subject ? (
                             <span className="rounded-full bg-black/5 px-2 py-0.5 text-black/60 ring-1 ring-black/10">
@@ -2562,10 +2892,8 @@ function MentorScreen({ state, setState, onOpenTask, setTaskDetailsByKey }) {
           <Section title="피드백 작성" icon={MessageSquareText}>
             <div className="rounded-2xl bg-black/3 px-4 py-3 text-sm">
               <div className="font-semibold">
-                현재 선택된 멘티: {activeMentee?.name} ({activeMentee?.grade})
-              </div>
-              <div className="text-xs text-black/60">
-                목표: {activeMentee?.goal}
+                현재 선택된 멘티: {activeMentee?.username || "없음"}{" "}
+                {activeMentee?.loginId ? `(${activeMentee.loginId})` : ""}
               </div>
             </div>
 
@@ -2594,21 +2922,18 @@ function MentorScreen({ state, setState, onOpenTask, setTaskDetailsByKey }) {
             <Section title="피드백 관리" icon={MessageSquareText}>
               <div className="rounded-2xl bg-black/3 px-4 py-3 text-sm">
                 <div className="font-semibold">
-                  대상 멘티: {selectedMenteeInfo?.name} (
-                  {selectedMenteeInfo?.grade})
-                </div>
-                <div className="text-xs text-black/60">
-                  저장된 피드백을 수정/삭제할 수 있어요.
+                  대상 멘티: {selectedMenteeInfo?.username || "멘티 선택"}{" "}
+                  {selectedMenteeInfo?.loginId ? `(${selectedMenteeInfo.loginId})` : ""}
                 </div>
               </div>
 
               <div className="mt-4 space-y-2">
-                {(state.feedbackByMentee[selectedMentee] || []).length === 0 ? (
+                {(feedbackList || []).length === 0 ? (
                   <div className="rounded-2xl bg-white/60 px-3 py-6 text-center text-sm text-black/50 ring-1 ring-black/5">
                     아직 피드백이 없어요.
                   </div>
                 ) : (
-                  (state.feedbackByMentee[selectedMentee] || [])
+                  (feedbackList || [])
                     .slice(0, 10)
                     .map((f) => (
                       <div
@@ -2685,40 +3010,19 @@ function MentorScreen({ state, setState, onOpenTask, setTaskDetailsByKey }) {
   );
 }
 
-function TopNav({ role, setRole, menteeId, setMenteeId, themeId, setThemeId }) {
+function TopNav({ role, user, themeId, onThemeChange, onLogout }) {
+  const roleLabel = role === "mentor" ? "멘토" : "멘티";
   return (
     <div className="sticky top-0 z-40 backdrop-blur-xl">
       <div className="mx-auto flex max-w-6xl items-center justify-between gap-3 px-4 py-4">
-        <div className="flex items-center gap-2">
-          <div className="grid h-11 w-11 place-items-center rounded-2xl bg-black text-white">
-            <ClipboardList className="h-5 w-5" />
-          </div>
-          <div>
-            <div className="text-sm text-black/60">멘토-멘티 플래너</div>
-            <div className="text-lg font-bold">Prototype</div>
-          </div>
-        </div>
+        <div />
 
         <div className="flex flex-wrap items-center gap-2">
-          <div className="rounded-2xl bg-white p-1 shadow-sm ring-1 ring-black/10">
-            <button
-              onClick={() => setRole("mentee")}
-              className={
-                "rounded-2xl px-4 py-2 text-sm font-semibold transition " +
-                (role === "mentee" ? "bg-black text-white" : "hover:bg-black/5")
-              }
-            >
-              멘티
-            </button>
-            <button
-              onClick={() => setRole("mentor")}
-              className={
-                "rounded-2xl px-4 py-2 text-sm font-semibold transition " +
-                (role === "mentor" ? "bg-black text-white" : "hover:bg-black/5")
-              }
-            >
-              멘토
-            </button>
+          <div className="rounded-2xl bg-white px-3 py-2 shadow-sm ring-1 ring-black/10">
+            <div className="text-xs text-black/60">로그인</div>
+            <div className="text-sm font-semibold">
+              {user?.username || "-"} · {roleLabel}
+            </div>
           </div>
 
           <div className="rounded-2xl bg-white px-3 py-2 shadow-sm ring-1 ring-black/10">
@@ -2726,7 +3030,7 @@ function TopNav({ role, setRole, menteeId, setMenteeId, themeId, setThemeId }) {
               <div className="text-xs text-black/60">테마</div>
               <select
                 value={themeId}
-                onChange={(e) => setThemeId(e.target.value)}
+                onChange={(e) => onThemeChange(e.target.value)}
                 className="bg-transparent text-sm font-semibold outline-none"
               >
                 {themes.map((t) => (
@@ -2738,24 +3042,13 @@ function TopNav({ role, setRole, menteeId, setMenteeId, themeId, setThemeId }) {
             </div>
           </div>
 
-          {role === "mentee" ? (
-            <div className="rounded-2xl bg-white px-3 py-2 shadow-sm ring-1 ring-black/10">
-              <div className="flex items-center gap-2">
-                <Users className="h-4 w-4 text-black/50" />
-                <select
-                  value={menteeId}
-                  onChange={(e) => setMenteeId(e.target.value)}
-                  className="bg-transparent text-sm font-semibold outline-none"
-                >
-                  {seedMentees.map((m) => (
-                    <option key={m.id} value={m.id}>
-                      {m.name}
-                    </option>
-                  ))}
-                </select>
-              </div>
-            </div>
-          ) : null}
+          <button
+            onClick={onLogout}
+            className="rounded-2xl bg-white px-4 py-2 text-sm font-semibold shadow-sm ring-1 ring-black/10 hover:bg-black/5"
+            title="로그아웃"
+          >
+            로그아웃
+          </button>
         </div>
       </div>
       <div className="h-px bg-black/5" />
@@ -2774,35 +3067,47 @@ export default function MentorMenteePlannerApp() {
   const navigate = useNavigate();
   // taskId -> { menteeNote, menteeFiles: [{id,name,size,file}], mentorNote, mentorFiles: [...] }
 
+  const handleLogout = async () => {
+    try {
+      await logoutSession();
+    } catch (e) {
+      // 서버 요청 실패해도 프론트는 로그아웃 처리
+      console.error(e);
+    } finally {
+      localStorage.removeItem("user");
+      setUser(null);
+      navigate("/login", { replace: true });
+    }
+  };
+
+  const handleThemeChange = async (nextThemeId) => {
+    const prev = themeId;
+    setThemeId(nextThemeId);
+    try {
+      await saveThemeId(nextThemeId);
+    } catch (e) {
+      console.error(e);
+      // 롤백
+      setThemeId(prev);
+      alert(String(e?.message || e || "테마 저장 실패"));
+    }
+  };
+
   useEffect(() => {
-    // 세션 체크 -> 화면 진입 가능
+    // 세션 체크 -> 화면 진입 가능 (role에 따라 초기 로딩 분기)
     let alive = true;
-
-    const checkSession = async () => {
-      try {
-        const res = await getSession();
-        if (!alive) return;
-
-        if (!res.ok) {
-          navigate("/login", { replace: true });
-          return;
-        }
-        setUser(res.data);
-      } catch (e) {
-        navigate("/login", { replace: true });
-      } finally {
-        if (alive) setLoading(false);
-      }
-    };
 
     const loadDashboard = async () => {
       try {
         const res = await getMenteeDashboard();
+        if (!alive) return;
         if (res.ok) {
           const dash = res.data || {};
           const todos = dash.todos || [];
           const studyTimeByDate = dash.studyTime || {};
           const dailyCommentsByDate = dash.dailyCommentsByDate || {};
+          const mentorTodoFeedback = dash.mentorTodoFeedback || [];
+          const mentorGeneralFeedback = dash.mentorGeneralFeedback || [];
 
           setState((prev) => {
             const tasksByDateFromDb = (todos || []).reduce((acc, t) => {
@@ -2813,7 +3118,7 @@ export default function MentorMenteePlannerApp() {
                 text: t.title,
                 subject: t.category ?? t.subject ?? "기타",
                 done: !!t.isDone,
-                assignedBy: "self",
+                assignedBy: t.deletable === false ? "mentor" : "self",
                 menteeId: prev.menteeId,
                 deletable: t.deletable !== false,
               });
@@ -2843,6 +3148,8 @@ export default function MentorMenteePlannerApp() {
               ...prev,
               dashboard: dash,
               tasksByDate: mergedTasksByDate,
+              mentorTodoFeedback,
+              mentorGeneralFeedback,
               studyByDate: {
                 ...(prev.studyByDate || {}),
                 ...(studyTimeByDate || {}),
@@ -2859,13 +3166,43 @@ export default function MentorMenteePlannerApp() {
       }
     };
 
-    checkSession();
-    loadDashboard();
+    (async () => {
+      try {
+        const res = await getSession();
+        if (!alive) return;
+
+        if (!res.ok || !res.data) {
+          navigate("/login", { replace: true });
+          return;
+        }
+
+        setUser(res.data);
+        const nextRole = res.data?.role === "mentor" ? "mentor" : "mentee";
+        setRole(nextRole);
+        if (res.data?.themeId) setThemeId(res.data.themeId);
+
+        // 멘티만 멘티 대시보드(DB) 로딩
+        if (nextRole === "mentee") {
+          await loadDashboard();
+        }
+      } catch (e) {
+        navigate("/login", { replace: true });
+      } finally {
+        if (alive) setLoading(false);
+      }
+    })();
 
     return () => {
       alive = false;
     };
-  }, []);
+  }, [navigate]);
+
+  // 혹시라도 세션이 비어있으면(또는 세션 조회 실패로 user가 null인 상태면) 빈 화면 대신 로그인으로 이동
+  useEffect(() => {
+    if (!loading && !user) {
+      navigate("/login", { replace: true });
+    }
+  }, [loading, user, navigate]);
 
   // SSE 구독(리마인더/알림) - 세션 확인 후에만 연결
   useEffect(() => {
@@ -2912,7 +3249,7 @@ export default function MentorMenteePlannerApp() {
   );
 
   if (loading) return <div>로딩 중</div>;
-  if (!user) return null;
+  if (!user) return <div>세션 확인 중...</div>;
 
   return (
     <div
@@ -2924,11 +3261,10 @@ export default function MentorMenteePlannerApp() {
     >
       <TopNav
         role={role}
-        setRole={setRole}
-        menteeId={state.menteeId}
-        setMenteeId={(id) => setState((p) => ({ ...p, menteeId: id }))}
+        user={user}
         themeId={themeId}
-        setThemeId={setThemeId}
+        onThemeChange={handleThemeChange}
+        onLogout={handleLogout}
       />
 
       <main className="mx-auto max-w-6xl px-4 py-8">
