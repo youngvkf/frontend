@@ -3,6 +3,7 @@ import { getSession, logout as logoutSession, saveThemeId } from './api/login';
 import { motion } from "framer-motion";
 import { useNavigate } from 'react-router-dom';
 import { getMenteeDashboard, addTodo, updateTodo, deleteTodo } from './api/mentee';
+import { SSE_ORIGIN, joinOrigin } from "./api/base";
 import {
   getMyMentees,
   getMenteeOverview,
@@ -3208,7 +3209,7 @@ export default function MentorMenteePlannerApp() {
   useEffect(() => {
     if (!user) return;
 
-    const es = new EventSource("http://localhost:4000/sse/subscribe", {
+    const es = new EventSource(joinOrigin(SSE_ORIGIN, "/sse/subscribe"), {
       withCredentials: true,
     });
 

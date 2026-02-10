@@ -1,4 +1,6 @@
-const API_BASE = "http://localhost:4000/api/mentormentee";
+import { API_ORIGIN, joinOrigin } from "./base";
+
+const API_BASE = joinOrigin(API_ORIGIN, "/api/mentormentee");
 
 export const getMenteeDashboard = async () => {
   const res = await fetch(`${API_BASE}/dashboard`, {

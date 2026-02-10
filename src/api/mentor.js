@@ -1,4 +1,6 @@
-const API_BASE = "http://localhost:4000/api/mentormentee/mentor";
+import { API_ORIGIN, joinOrigin } from "./base";
+
+const API_BASE = joinOrigin(API_ORIGIN, "/api/mentormentee/mentor");
 
 async function parseJsonOrThrow(res, prefix) {
   const text = await res.text().catch(() => "");

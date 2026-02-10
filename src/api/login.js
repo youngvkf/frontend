@@ -1,4 +1,6 @@
-const API_BASE = 'http://localhost:4000/api/auth';
+import { API_ORIGIN, joinOrigin } from "./base";
+
+const API_BASE = joinOrigin(API_ORIGIN, "/api/auth");
 
 export const login = async (loginId, password) => {
     const response = await fetch(`${API_BASE}/login`, {
@@ -42,7 +44,6 @@ export const logout = async () => {
     }
 };
 
-/** 테마 저장 (DB + 세션) */
 export const saveThemeId = async (themeId) => {
     const res = await fetch(`${API_BASE}/preferences/theme`, {
         method: 'PATCH',
