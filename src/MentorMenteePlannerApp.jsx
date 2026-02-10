@@ -2,8 +2,7 @@ import React, { useMemo, useState, useEffect } from "react";
 import { getSession } from './api/login';
 import { motion } from "framer-motion";
 import { useNavigate } from 'react-router-dom';
-import { getMenteeDashboard } from './api/mentee';
-import { addTodo } from './api/mentee';
+import { getMenteeDashboard, addTodo, updateTodo } from './api/mentee';
 import {
   Bell,
   Calendar,
@@ -27,10 +26,8 @@ import {
 const pad2 = (n) => String(n).padStart(2, "0");
 const ymd = (d) =>
   `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
+const isMongoObjectId = (v) => typeof v === 'string' && /^[a-f\d]{24}$/i.test(v);
 
-<<<<<<< HEAD
-function addDays(date, delta) { // 날짜 이동
-=======
 function daysInMonth(year, monthIndex) {
   return new Date(year, monthIndex + 1, 0).getDate();
 }
@@ -56,7 +53,6 @@ function addMonthsKeepDay(date, delta) {
 
 function addDays(date, delta) {
   // 날짜 이동
->>>>>>> c26d24c52c8d9b9d9e087a5e14dadaf9cb154531
   const d = new Date(date);
   d.setDate(d.getDate() + delta);
   return d;
@@ -70,11 +66,7 @@ function remainingCountForDate(tasksByDate, dateKey, menteeId) {
   }).length;
 }
 
-<<<<<<< HEAD
-function startOfWeek(date) { 
-=======
 function startOfWeek(date) {
->>>>>>> c26d24c52c8d9b9d9e087a5e14dadaf9cb154531
   // 월요일 시작
   const d = new Date(date);
   const day = d.getDay(); // 0=Sun
@@ -84,13 +76,10 @@ function startOfWeek(date) {
   return d;
 }
 
-<<<<<<< HEAD
-=======
 function endOfWeek(date) {
   return addDays(startOfWeek(date), 6);
 }
 
->>>>>>> c26d24c52c8d9b9d9e087a5e14dadaf9cb154531
 function startOfMonth(date) {
   const d = new Date(date.getFullYear(), date.getMonth(), 1);
   d.setHours(0, 0, 0, 0);
@@ -109,12 +98,6 @@ function clamp(n, min, max) {
 
 const weekDaysKo = ["월", "화", "수", "목", "금", "토", "일"];
 
-<<<<<<< HEAD
-const seedMentees = [
-  { id: "m1", name: "민지", grade: "고2", goal: "수학 2시간/일" },
-  { id: "m2", name: "준호", grade: "중3", goal: "영어 단어 50개" },
-  { id: "m3", name: "서연", grade: "고1", goal: "과탐 복습" },
-=======
 function isImageFile(f) {
   const typeOk = (f.type || "").startsWith("image/");
   const nameOk = /\.(png|jpe?g|gif|webp|bmp)$/i.test(f.name || "");
@@ -135,7 +118,6 @@ function toDetailFiles(fileList) {
 const seedMentees = [
   { id: "m1", name: "민지", grade: "고2", goal: "수학 2시간/일" },
   { id: "m2", name: "준호", grade: "중3", goal: "영어 단어 50개" },
->>>>>>> c26d24c52c8d9b9d9e087a5e14dadaf9cb154531
 ];
 
 const seedSubjects = ["국어", "수학", "영어", "과학", "사회", "기타"];
@@ -215,8 +197,6 @@ const themes = [
       "--app-primary-text": "#082f49",
     },
   },
-<<<<<<< HEAD
-=======
   {
     id: "snu_clean",
     name: "SNU Clean",
@@ -271,7 +251,6 @@ const themes = [
       "--app-primary-text": "#ffffff",
     },
   },
->>>>>>> c26d24c52c8d9b9d9e087a5e14dadaf9cb154531
 ];
 // 초기 상태 생성
 function buildInitialState() {
@@ -286,13 +265,6 @@ function buildInitialState() {
         {
           id: "t1",
           text: "수학 오답노트 1~10",
-<<<<<<< HEAD
-          done: false,
-          assignedBy: "mentor",
-          menteeId: "m1"
-        },
-        { id: "t2", text: "영단어 30개", done: true, assignedBy: "self", menteeId: "m1" },
-=======
           subject: "수학",
           done: false,
           assignedBy: "mentor",
@@ -306,7 +278,6 @@ function buildInitialState() {
           assignedBy: "self",
           menteeId: "m1",
         },
->>>>>>> c26d24c52c8d9b9d9e087a5e14dadaf9cb154531
       ],
     },
     studyByDate: {
@@ -339,18 +310,10 @@ function buildInitialState() {
         },
       ],
       m2: [],
-<<<<<<< HEAD
-      m3: [],
-=======
->>>>>>> c26d24c52c8d9b9d9e087a5e14dadaf9cb154531
     },
     seenFeedbackIdsByMentee: {
       m1: ["f1"], // 초기 seed 피드백은 '이미 확인함'으로 처리
       m2: [],
-<<<<<<< HEAD
-      m3: [],
-=======
->>>>>>> c26d24c52c8d9b9d9e087a5e14dadaf9cb154531
     },
   };
 }
@@ -467,23 +430,12 @@ function MonthlyCalendar({
   date,
   onClose,
   onSelectDate,
-<<<<<<< HEAD
-=======
   onChangeMonth,
->>>>>>> c26d24c52c8d9b9d9e087a5e14dadaf9cb154531
   tasksByDate,
   menteeId,
 }) {
   const mStart = startOfMonth(date);
   const mEnd = endOfMonth(date);
-<<<<<<< HEAD
-  const startGrid = startOfWeek(mStart);
-
-  const days = useMemo(() => {
-    const out = [];
-    let cursor = new Date(startGrid);
-    // 6주(42칸) 고정
-=======
 
   // 월을 덮는 "주 시작일" 리스트 만들기 (최대 6주까지 가능)
   const monthWeekStarts = useMemo(() => {
@@ -508,7 +460,6 @@ function MonthlyCalendar({
   const days42 = useMemo(() => {
     const out = [];
     let cursor = new Date(startGrid);
->>>>>>> c26d24c52c8d9b9d9e087a5e14dadaf9cb154531
     for (let i = 0; i < 42; i++) {
       out.push(new Date(cursor));
       cursor = addDays(cursor, 1);
@@ -519,8 +470,6 @@ function MonthlyCalendar({
   const selectedKey = ymd(date);
   const month = date.getMonth();
 
-<<<<<<< HEAD
-=======
   // 주차 클릭 시 보여줄 7일
   const weekStart = monthWeekStarts[selectedWeekIdx] || startOfWeek(mStart);
   const weekDays = useMemo(
@@ -541,73 +490,11 @@ function MonthlyCalendar({
     return out;
   }, [weekDays, tasksByDate, menteeId]);
 
->>>>>>> c26d24c52c8d9b9d9e087a5e14dadaf9cb154531
   return (
     <div className="fixed inset-0 z-50 grid place-items-center bg-black/40 p-4">
       <motion.div
         initial={{ opacity: 0, y: 10, scale: 0.98 }}
         animate={{ opacity: 1, y: 0, scale: 1 }}
-<<<<<<< HEAD
-        className="w-full max-w-3xl rounded-3xl bg-white p-6 shadow-xl"
-      >
-        <div className="flex items-center justify-between gap-3">
-          <div>
-            <div className="text-sm text-black/60">월간 계획표</div>
-            <div className="text-xl font-bold">
-              {date.getFullYear()}년 {date.getMonth() + 1}월
-            </div>
-          </div>
-          <button
-            onClick={onClose}
-            className="rounded-2xl bg-[var(--app-primary)] px-4 py-2 text-sm font-semibold text-[var(--app-primary-text)]"
-          >
-            닫기
-          </button>
-        </div>
-
-        <div className="mt-5 grid grid-cols-7 gap-2">
-          {weekDaysKo.map((d) => (
-            <div key={d} className="text-center text-xs text-black/60">
-              {d}
-            </div>
-          ))}
-          {days.map((d) => {
-            const k = ymd(d);
-            const remain = remainingCountForDate(tasksByDate, k, menteeId);
-            const inMonth = d.getMonth() === month;
-            const isSelected = k === selectedKey;
-            const disabled = d < mStart || d > mEnd;
-            return (
-              <button
-                key={k}
-                onClick={() => {
-                  if (!disabled) onSelectDate(d);
-                }}
-                className={
-                  "rounded-2xl px-2 py-3 text-sm font-semibold ring-1 transition " +
-                  (isSelected
-                    ? "bg-black text-white ring-black"
-                    : "bg-white hover:bg-black/5 ring-black/10") +
-                  (inMonth ? "" : " opacity-40")
-                }
-                title={k}
-              >
-                <span className="relative inline-block">
-                  {d.getDate()}
-                  {remain > 0 ? (
-                    <span className="absolute -right-3 -top-2 min-w-[18px] rounded-full bg-rose-500 px-1 text-[10px] font-bold leading-4 text-white">
-                      {remain}
-                    </span>
-                  ) : null}
-                </span>
-              </button>
-            );
-          })}
-        </div>
-
-        <div className="mt-5 text-sm text-black/60">
-          날짜를 선택하면 해당 날짜로 이동합니다.
-=======
         className="w-full max-w-5xl max-h-[90vh] overflow-hidden rounded-3xl bg-white p-6 shadow-xl flex flex-col"
       >
         {/* 헤더 */}
@@ -944,7 +831,6 @@ function MonthlyCalendar({
               </>
             )}
           </div>
->>>>>>> c26d24c52c8d9b9d9e087a5e14dadaf9cb154531
         </div>
       </motion.div>
     </div>
@@ -964,11 +850,6 @@ function DailyPlanner({
   subjects,
   onAddTodo,
   setSubjects,
-<<<<<<< HEAD
-}) {
-  const [newTask, setNewTask] = useState("");
-
-=======
   menteeId,
 }) {
   const [newTask, setNewTask] = useState("");
@@ -982,7 +863,6 @@ function DailyPlanner({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [subjects]);
 
->>>>>>> c26d24c52c8d9b9d9e087a5e14dadaf9cb154531
   const totalMinutes = useMemo(() => {
     if (!study) return 0;
     return Object.values(study).reduce((a, b) => a + (Number(b) || 0), 0);
@@ -1045,12 +925,8 @@ function DailyPlanner({
     const t = newTask.trim();
     if (!t) return;
 
-<<<<<<< HEAD
-    onAddTodo(t);
-=======
     onAddTodo({ title: t, subject: newTaskSubject });
 
->>>>>>> c26d24c52c8d9b9d9e087a5e14dadaf9cb154531
     // setTasks((prev) => [
     //   ...prev,
     //   {
@@ -1058,11 +934,7 @@ function DailyPlanner({
     //     text: t,
     //     done: false,
     //     assignedBy: "self",
-<<<<<<< HEAD
-    //     menteeId: state.menteeId, 
-=======
     //     menteeId: state.menteeId,
->>>>>>> c26d24c52c8d9b9d9e087a5e14dadaf9cb154531
     //   },
     // ]);
 
@@ -1070,9 +942,28 @@ function DailyPlanner({
   };
 
   const toggleTask = (id) => {
+    const target = (tasks || []).find((t) => t.id === id);
+    if (!target) return;
+
+    const idStr = typeof id === "string" ? id : String(id);
+    const nextDone = !target.done;
+
+    // UI는 먼저 반영 (optimistic)
     setTasks((prev) =>
-      prev.map((t) => (t.id === id ? { ...t, done: !t.done } : t)),
+      (prev || []).map((t) => (t.id === id ? { ...t, done: nextDone } : t)),
     );
+
+    // DB todo(_id)만 서버에 저장
+    if (isMongoObjectId(idStr)) {
+      updateTodo({ todoId: idStr, isDone: nextDone })
+        .catch((e) => {
+          // 실패 시 롤백
+          setTasks((prev) =>
+            (prev || []).map((t) => (t.id === id ? { ...t, done: !nextDone } : t)),
+          );
+          alert(String(e?.message || e || "완료 상태 저장 실패"));
+        });
+    }
   };
 
   const deleteTask = (id) => {
@@ -1139,8 +1030,6 @@ function DailyPlanner({
               placeholder="할 일을 입력하고 Enter"
               className="w-full rounded-2xl border border-black/10 bg-white px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-black/20"
             />
-<<<<<<< HEAD
-=======
 
             {/* ✅ 과목 선택 */}
             <select
@@ -1156,7 +1045,6 @@ function DailyPlanner({
               ))}
             </select>
 
->>>>>>> c26d24c52c8d9b9d9e087a5e14dadaf9cb154531
             <button
               onClick={addTask}
               className="grid h-10 w-10 place-items-center rounded-2xl bg-black text-white"
@@ -1202,10 +1090,6 @@ function DailyPlanner({
                     >
                       {t.text}
                     </div>
-<<<<<<< HEAD
-                    <div className="mt-1 text-xs text-black/45">
-                      {t.assignedBy === "mentor" ? "멘토 과제" : "내가 추가"}
-=======
                     <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-black/45">
                       <span>
                         {t.assignedBy === "mentor" ? "멘토 과제" : "내가 추가"}
@@ -1216,7 +1100,6 @@ function DailyPlanner({
                           {t.subject}
                         </span>
                       ) : null}
->>>>>>> c26d24c52c8d9b9d9e087a5e14dadaf9cb154531
                     </div>
                   </div>
                   {t.assignedBy !== "mentor" ? (
@@ -1392,21 +1275,10 @@ function Reminders({
           </div>
         </div>
       </div>
-<<<<<<< HEAD
-
-      <div className="mt-4 rounded-2xl bg-black/3 px-4 py-3 text-xs text-black/60">
-        실제 서비스에서는 Web Push/알림 권한, 백엔드 스케줄러(예: cron), 또는
-        모바일 푸시로 연동해요. 지금은 UI 프로토타입입니다.
-      </div>
-=======
->>>>>>> c26d24c52c8d9b9d9e087a5e14dadaf9cb154531
     </Section>
   );
 }
 
-<<<<<<< HEAD
-function MenteeScreen({ state, setState, onOpenTask }) {
-=======
 function MenteeScreen({
   state,
   setState,
@@ -1414,7 +1286,6 @@ function MenteeScreen({
   taskDetailsByKey,
   setTaskDetailsByKey,
 }) {
->>>>>>> c26d24c52c8d9b9d9e087a5e14dadaf9cb154531
   const dateKey = ymd(state.selectedDate);
   // ✅ 상세 모달 상태
   const [taskDetailOpen, setTaskDetailOpen] = useState(false);
@@ -1432,22 +1303,6 @@ function MenteeScreen({
     }));
   };
 
-<<<<<<< HEAD
-  const handleAddTodo = async (text) => {
-    try {
-      const res = await addTodo({
-        title,
-        date: dateKey
-      })
-
-      if (res.ok){
-        setTasksForDate((prev) => [...prev, res.data]);
-      }
-    } catch (e){
-      alert('할 일 추가 실패');
-    }
-  }
-=======
   const handleAddTodo = async ({ title, subject }) => {
     try {
       const res = await addTodo({
@@ -1460,9 +1315,9 @@ function MenteeScreen({
         setTasksForDate((prev) => [
           ...prev,
           {
-            id: res.data.id,
+            id: String(res.data.id),
             text: res.data.title, // ✅ title → text
-            subject,
+            subject: res.data.category ?? subject,
             done: res.data.isDone ?? false, // ✅ isDone → done
             assignedBy: "self",
             menteeId: state.menteeId,
@@ -1476,7 +1331,6 @@ function MenteeScreen({
       alert("할 일 추가 실패");
     }
   };
->>>>>>> c26d24c52c8d9b9d9e087a5e14dadaf9cb154531
 
   const openTaskDetail = (task, dateKeyForTask) => {
     setActiveTask({ ...task, dateKey: dateKeyForTask });
@@ -1490,11 +1344,6 @@ function MenteeScreen({
     setActiveTaskDateKey(null);
   };
 
-<<<<<<< HEAD
-  const [taskDetailsByKey, setTaskDetailsByKey] = useState({});
-
-=======
->>>>>>> c26d24c52c8d9b9d9e087a5e14dadaf9cb154531
   const activeDetailKey =
     activeTask && activeTaskDateKey
       ? `${activeTaskDateKey}__${activeTask.id}`
@@ -1513,12 +1362,6 @@ function MenteeScreen({
     });
   };
 
-<<<<<<< HEAD
-  const tasks = state.tasksByDate[dateKey] || [];
-  const subjects = state.subjects || [];
-  const study =
-    state.studyByDate[dateKey] ||
-=======
   const allTasksForDate = state.tasksByDate[dateKey] || [];
   const isMine = (t) => !t.menteeId || t.menteeId === state.menteeId; // 공용 or 내 것
 
@@ -1527,19 +1370,11 @@ function MenteeScreen({
 
   const subjects = state.subjects || [];
   const study =
-    state.studyByDate?.[state.menteeId]?.[dateKey] ||
->>>>>>> c26d24c52c8d9b9d9e087a5e14dadaf9cb154531
+    state.studyByDate?.[dateKey] ||
     subjects.reduce((acc, s) => ({ ...acc, [s]: 0 }), {});
 
   const setTasksForDate = (updater) => {
     setState((prev) => {
-<<<<<<< HEAD
-      const current = prev.tasksByDate[dateKey] || [];
-      const next = typeof updater === "function" ? updater(current) : updater;
-      return {
-        ...prev,
-        tasksByDate: { ...prev.tasksByDate, [dateKey]: next },
-=======
       const full = prev.tasksByDate[dateKey] || [];
 
       const mine = full.filter(
@@ -1557,22 +1392,12 @@ function MenteeScreen({
           ...prev.tasksByDate,
           [dateKey]: [...others, ...nextMine], // ✅ 다른 멘티 것 보존 + 내 것 갱신
         },
->>>>>>> c26d24c52c8d9b9d9e087a5e14dadaf9cb154531
       };
     });
   };
 
   const setStudyForDate = (updater) => {
     setState((prev) => {
-<<<<<<< HEAD
-      const current =
-        prev.studyByDate[dateKey] ||
-        seedSubjects.reduce((acc, s) => ({ ...acc, [s]: 0 }), {});
-      const next = typeof updater === "function" ? updater(current) : updater;
-      return {
-        ...prev,
-        studyByDate: { ...prev.studyByDate, [dateKey]: next },
-=======
       const byMentee = prev.studyByDate?.[prev.menteeId] || {};
       const current =
         byMentee[dateKey] ||
@@ -1589,7 +1414,6 @@ function MenteeScreen({
             [dateKey]: next,
           },
         },
->>>>>>> c26d24c52c8d9b9d9e087a5e14dadaf9cb154531
       };
     });
   };
@@ -1710,10 +1534,7 @@ function MenteeScreen({
                     : updater,
               }))
             }
-<<<<<<< HEAD
-=======
             menteeId={state.menteeId}
->>>>>>> c26d24c52c8d9b9d9e087a5e14dadaf9cb154531
           />
 
           {/* ✅ 주간 학습 리포트 */}
@@ -1747,11 +1568,6 @@ function MenteeScreen({
                       </div>
                       <div className="text-xs text-black/60">{t.dateKey}</div>
                     </div>
-<<<<<<< HEAD
-                    <div className="mt-1 text-xs text-black/60">
-                      상태: {t.done ? "완료" : "미완료"} ·{" "}
-                      {t.assignedBy === "mentor" ? "멘토 과제" : "내가 추가"}
-=======
                     <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-black/60">
                       <span>
                         상태: {t.done ? "완료" : "미완료"} ·{" "}
@@ -1763,7 +1579,6 @@ function MenteeScreen({
                           {t.subject}
                         </span>
                       ) : null}
->>>>>>> c26d24c52c8d9b9d9e087a5e14dadaf9cb154531
                     </div>
                   </button>
                 ))
@@ -1830,15 +1645,12 @@ function MenteeScreen({
             setState((p) => ({ ...p, selectedDate: d }));
             setMonthlyOpen(false);
           }}
-<<<<<<< HEAD
-=======
           onChangeMonth={(delta) => {
             setState((p) => ({
               ...p,
               selectedDate: addMonthsKeepDay(p.selectedDate, delta),
             }));
           }}
->>>>>>> c26d24c52c8d9b9d9e087a5e14dadaf9cb154531
           tasksByDate={state.tasksByDate}
           menteeId={state.menteeId}
         />
@@ -1912,10 +1724,6 @@ function TaskDetailModal({ open, onClose, role, task, details, setDetails }) {
   };
 
   return (
-<<<<<<< HEAD
-    <div className="fixed inset-0 z-50 bg-black/40 p-4 flex items-center justify-center">
-      <div className="w-full max-w-3xl rounded-3xl bg-white shadow-xl ring-1 ring-black/10">
-=======
     <div
       className="
     fixed inset-0 z-50 bg-black/40
@@ -1926,7 +1734,6 @@ function TaskDetailModal({ open, onClose, role, task, details, setDetails }) {
   "
     >
       <div className="w-full max-w-3xl max-h-[90vh] overflow-y-auto rounded-3xl bg-white shadow-xl ring-1 ring-black/10">
->>>>>>> c26d24c52c8d9b9d9e087a5e14dadaf9cb154531
         <div className="flex items-start justify-between gap-3 border-b border-black/5 px-6 py-5">
           <div className="min-w-0">
             <div className="text-xs text-black/60">할 일 상세</div>
@@ -2058,14 +1865,6 @@ function TaskDetailModal({ open, onClose, role, task, details, setDetails }) {
               코멘트 + (선택) 파일 첨부
             </div>
 
-<<<<<<< HEAD
-            <textarea
-              value={details?.mentorNote || ""}
-              onChange={(e) =>
-                setDetails((p) => ({
-                  ...(p || {}),
-                  mentorNote: e.target.value,
-=======
             {/* ✅ 과제 세부 내용(설명) - 읽기 전용 */}
             <div className="mt-3 rounded-2xl bg-white px-3 py-3 ring-1 ring-black/5">
               <div className="text-xs font-semibold text-black/60">
@@ -2089,7 +1888,6 @@ function TaskDetailModal({ open, onClose, role, task, details, setDetails }) {
                 setDetails((p) => ({
                   ...(p || {}),
                   mentorFeedback: e.target.value,
->>>>>>> c26d24c52c8d9b9d9e087a5e14dadaf9cb154531
                 }))
               }
               rows={6}
@@ -2193,16 +1991,6 @@ function TaskDetailModal({ open, onClose, role, task, details, setDetails }) {
   );
 }
 
-<<<<<<< HEAD
-function MentorScreen({ state, setState, onOpenTask }) {
-  const [q, setQ] = useState("");
-  const [selectedMentee, setSelectedMentee] = useState(state.menteeId);
-  const [assignDate, setAssignDate] = useState(ymd(state.selectedDate));
-  const [taskText, setTaskText] = useState("");
-
-  const [fbTitle, setFbTitle] = useState("");
-  const [fbBody, setFbBody] = useState("");
-=======
 function MentorScreen({ state, setState, onOpenTask, setTaskDetailsByKey }) {
   const [q, setQ] = useState("");
   const [selectedMentee, setSelectedMentee] = useState(state.menteeId);
@@ -2222,7 +2010,6 @@ function MentorScreen({ state, setState, onOpenTask, setTaskDetailsByKey }) {
   );
   const assignDate = selectedDate;
   const [assignFiles, setAssignFiles] = useState([]);
->>>>>>> c26d24c52c8d9b9d9e087a5e14dadaf9cb154531
 
   const [editingFeedbackId, setEditingFeedbackId] = useState(null);
   const [editTitle, setEditTitle] = useState("");
@@ -2235,16 +2022,6 @@ function MentorScreen({ state, setState, onOpenTask, setTaskDetailsByKey }) {
 
     const all = entries.flatMap(([dateKey, arr]) =>
       (arr || [])
-<<<<<<< HEAD
-        // 선택된 멘티 것만
-        .filter((t) => t.menteeId === selectedMentee)
-        .map((t) => ({ ...t, dateKey })),
-    );
-
-    all.sort((a, b) => b.dateKey.localeCompare(a.dateKey));
-    return all;
-  }, [state.tasksByDate, selectedMentee]);
-=======
         .filter(
           (t) => t.menteeId === selectedMentee && dateKey === selectedDate, // ✅ 날짜 필터
         )
@@ -2285,7 +2062,6 @@ function MentorScreen({ state, setState, onOpenTask, setTaskDetailsByKey }) {
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [state.subjects, selectedMentee]);
->>>>>>> c26d24c52c8d9b9d9e087a5e14dadaf9cb154531
 
   const deleteFeedback = (id) => {
     setState((prev) => {
@@ -2342,17 +2118,6 @@ function MentorScreen({ state, setState, onOpenTask, setTaskDetailsByKey }) {
     if (!text) return;
 
     const targetDate = assignDate;
-<<<<<<< HEAD
-    setState((prev) => {
-      const prevTasks = prev.tasksByDate[targetDate] || [];
-      const newTask = {
-        id: `t_${Date.now()}`,
-        text,
-        done: false,
-        assignedBy: "mentor",
-        menteeId: selectedMentee,
-      };
-=======
 
     // ✅ 과제 객체 먼저 만들기 (id가 필요해서)
     const newTask = {
@@ -2367,7 +2132,6 @@ function MentorScreen({ state, setState, onOpenTask, setTaskDetailsByKey }) {
     // ✅ 과제 등록
     setState((prev) => {
       const prevTasks = prev.tasksByDate[targetDate] || [];
->>>>>>> c26d24c52c8d9b9d9e087a5e14dadaf9cb154531
       return {
         ...prev,
         tasksByDate: {
@@ -2380,10 +2144,6 @@ function MentorScreen({ state, setState, onOpenTask, setTaskDetailsByKey }) {
         ],
       };
     });
-<<<<<<< HEAD
-
-    setTaskText("");
-=======
     //  상세 저장 로직 (멘토 첨부파일을 상세페이지에 바로 보이게 저장)
     // ✅ addAssignment 안에서 (과제 등록 직후)
     const detailKey = `${targetDate}__${newTask.id}`;
@@ -2407,7 +2167,6 @@ function MentorScreen({ state, setState, onOpenTask, setTaskDetailsByKey }) {
     setTaskText("");
     setTaskDetail("");
     setAssignFiles([]);
->>>>>>> c26d24c52c8d9b9d9e087a5e14dadaf9cb154531
   };
 
   const addFeedback = () => {
@@ -2456,12 +2215,6 @@ function MentorScreen({ state, setState, onOpenTask, setTaskDetailsByKey }) {
             className="w-72 max-w-[60vw] bg-transparent text-sm outline-none"
           />
         </div>
-<<<<<<< HEAD
-      </div>
-
-      <div className="grid gap-6 lg:grid-cols-3">
-        <div className="lg:col-span-1">
-=======
 
         <div className="flex items-center gap-2 rounded-2xl bg-white px-3 py-2 shadow-sm ring-1 ring-black/10">
           <Calendar className="h-4 w-4 text-black/50" />
@@ -2478,7 +2231,6 @@ function MentorScreen({ state, setState, onOpenTask, setTaskDetailsByKey }) {
 
       <div className="grid gap-6 lg:grid-cols-3">
         <div className="lg:col-span-1 space-y-6">
->>>>>>> c26d24c52c8d9b9d9e087a5e14dadaf9cb154531
           <Section title="담당 멘티 목록" icon={Users}>
             <div className="space-y-2">
               {mentees.map((m) => {
@@ -2523,8 +2275,6 @@ function MentorScreen({ state, setState, onOpenTask, setTaskDetailsByKey }) {
               서버에서 불러옵니다.
             </div>
           </Section>
-<<<<<<< HEAD
-=======
           <Section title="이번 주 미완료 할 일" icon={ListChecks}>
             <div className="text-xs text-black/60 mb-2">
               {ymd(weekStart)} ~ {ymd(weekEnd)} 기준
@@ -2560,7 +2310,6 @@ function MentorScreen({ state, setState, onOpenTask, setTaskDetailsByKey }) {
               </div>
             )}
           </Section>
->>>>>>> c26d24c52c8d9b9d9e087a5e14dadaf9cb154531
         </div>
 
         <div className="lg:col-span-2 space-y-6">
@@ -2603,11 +2352,6 @@ function MentorScreen({ state, setState, onOpenTask, setTaskDetailsByKey }) {
                               {t.dateKey}
                             </div>
                           </div>
-<<<<<<< HEAD
-                          <div className="mt-1 text-xs text-black/60">
-                            상태: {t.done ? "완료" : "미완료"} · 클릭해서
-                            제출/피드백 보기
-=======
                           <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-black/60">
                             <span>
                               상태: {t.done ? "완료" : "미완료"} · 클릭해서
@@ -2619,7 +2363,6 @@ function MentorScreen({ state, setState, onOpenTask, setTaskDetailsByKey }) {
                                 {t.subject}
                               </span>
                             ) : null}
->>>>>>> c26d24c52c8d9b9d9e087a5e14dadaf9cb154531
                           </div>
                         </button>
                       ))
@@ -2655,8 +2398,6 @@ function MentorScreen({ state, setState, onOpenTask, setTaskDetailsByKey }) {
                 />
               </div>
 
-<<<<<<< HEAD
-=======
               <div>
                 <div className="mb-1 text-xs text-black/60">과목(카테고리)</div>
                 <select
@@ -2672,7 +2413,6 @@ function MentorScreen({ state, setState, onOpenTask, setTaskDetailsByKey }) {
                 </select>
               </div>
 
->>>>>>> c26d24c52c8d9b9d9e087a5e14dadaf9cb154531
               <div className="md:col-span-3">
                 <div className="mb-1 text-xs text-black/60">부여할 과제</div>
                 <div className="flex gap-2">
@@ -2685,10 +2425,6 @@ function MentorScreen({ state, setState, onOpenTask, setTaskDetailsByKey }) {
                     placeholder="예: 수학 오답 10문제 + 개념노트 1장"
                     className="w-full rounded-2xl border border-black/10 bg-white px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-black/20"
                   />
-<<<<<<< HEAD
-=======
-
->>>>>>> c26d24c52c8d9b9d9e087a5e14dadaf9cb154531
                   <button
                     onClick={addAssignment}
                     className="grid h-10 w-10 place-items-center rounded-2xl bg-black text-white"
@@ -2698,8 +2434,6 @@ function MentorScreen({ state, setState, onOpenTask, setTaskDetailsByKey }) {
                   </button>
                 </div>
               </div>
-<<<<<<< HEAD
-=======
 
               <div className="md:col-span-3">
                 <div className="mb-1 text-xs text-black/60">
@@ -2787,7 +2521,6 @@ function MentorScreen({ state, setState, onOpenTask, setTaskDetailsByKey }) {
                   ) : null}
                 </div>
               </div>
->>>>>>> c26d24c52c8d9b9d9e087a5e14dadaf9cb154531
             </div>
 
             <div className="mt-4 rounded-2xl bg-white px-4 py-3 ring-1 ring-black/5">
@@ -2809,10 +2542,6 @@ function MentorScreen({ state, setState, onOpenTask, setTaskDetailsByKey }) {
                           <div className="text-sm font-semibold">{t.text}</div>
                           <div className="text-xs text-black/60">{t.date}</div>
                         </div>
-<<<<<<< HEAD
-                        <div className="mt-1 text-xs text-black/60">
-                          대상: {m?.name || "-"}
-=======
                         <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-black/60">
                           <span>대상: {m?.name || "-"}</span>
 
@@ -2821,7 +2550,6 @@ function MentorScreen({ state, setState, onOpenTask, setTaskDetailsByKey }) {
                               {t.subject}
                             </span>
                           ) : null}
->>>>>>> c26d24c52c8d9b9d9e087a5e14dadaf9cb154531
                         </div>
                       </div>
                     );
@@ -3040,11 +2768,7 @@ export default function MentorMenteePlannerApp() {
   const [state, setState] = useState(buildInitialState);
   const [detailOpen, setDetailOpen] = useState(false);
   const [detailTask, setDetailTask] = useState(null); // { id, text, dateKey ... }
-<<<<<<< HEAD
-  const [taskDetailsById, setTaskDetailsById] = useState({});
-=======
   const [taskDetailsByKey, setTaskDetailsByKey] = useState({});
->>>>>>> c26d24c52c8d9b9d9e087a5e14dadaf9cb154531
   const [loading, setLoading] = useState(true);
   const [user, setUser] = useState(null);
   const navigate = useNavigate();
@@ -3054,35 +2778,6 @@ export default function MentorMenteePlannerApp() {
     // 세션 체크 -> 화면 진입 가능
     let alive = true;
 
-<<<<<<< HEAD
-    const checkSession = async() => {
-      try{
-        const res = await getSession();
-        if(!alive) return;
-
-        if(!res.ok){
-          navigate('/login', {replace: true});
-          return; 
-        }
-        setUser(res.data);
-      } catch(e) {
-        navigate('/login', {replace: true});
-      } finally {
-        if (alive) setLoading(false);
-      }
-    }
-
-    const loadDashboard = async() => {
-      try {
-        const res = await getMenteeDashboard();
-        if (res.ok){
-          setState(res.data);
-        }
-      } catch(e){
-        console.error(e);
-      }
-    }
-=======
     const checkSession = async () => {
       try {
         const res = await getSession();
@@ -3104,26 +2799,95 @@ export default function MentorMenteePlannerApp() {
       try {
         const res = await getMenteeDashboard();
         if (res.ok) {
-          setState(res.data);
+          const dash = res.data || {};
+          const todos = dash.todos || [];
+          const studyTimeByDate = dash.studyTime || {};
+          const dailyCommentsByDate = dash.dailyCommentsByDate || {};
+
+          setState((prev) => {
+            const tasksByDateFromDb = (todos || []).reduce((acc, t) => {
+              const key = ymd(new Date(t.date));
+              const arr = acc[key] || [];
+              arr.push({
+                id: t.id,
+                text: t.title,
+                subject: t.category ?? t.subject ?? "기타",
+                done: !!t.isDone,
+                assignedBy: "self",
+                menteeId: prev.menteeId,
+                deletable: t.deletable !== false,
+              });
+              acc[key] = arr;
+              return acc;
+            }, {});
+
+            // seed는 유지 + DB todo를 날짜별로 추가(merge)
+            const mergedTasksByDate = Object.keys(tasksByDateFromDb).reduce(
+              (merged, key) => {
+                const prevArr = merged[key] || [];
+                const dbArr = tasksByDateFromDb[key] || [];
+
+                const byId = new Map();
+                for (const item of [...prevArr, ...dbArr]) {
+                  if (!item?.id) continue;
+                  byId.set(item.id, item);
+                }
+
+                merged[key] = [...byId.values()];
+                return merged;
+              },
+              { ...prev.tasksByDate },
+            );
+
+            return {
+              ...prev,
+              dashboard: dash,
+              tasksByDate: mergedTasksByDate,
+              studyByDate: {
+                ...(prev.studyByDate || {}),
+                ...(studyTimeByDate || {}),
+              },
+              menteeCommentByDate: {
+                ...(prev.menteeCommentByDate || {}),
+                ...(dailyCommentsByDate || {}),
+              },
+            };
+          });
         }
       } catch (e) {
         console.error(e);
       }
     };
->>>>>>> c26d24c52c8d9b9d9e087a5e14dadaf9cb154531
 
     checkSession();
     loadDashboard();
 
     return () => {
       alive = false;
-<<<<<<< HEAD
-    }
-  }, [])
-=======
     };
   }, []);
->>>>>>> c26d24c52c8d9b9d9e087a5e14dadaf9cb154531
+
+  // SSE 구독(리마인더/알림) - 세션 확인 후에만 연결
+  useEffect(() => {
+    if (!user) return;
+
+    const es = new EventSource("http://localhost:4000/sse/subscribe", {
+      withCredentials: true,
+    });
+
+    es.onmessage = (event) => {
+      console.log("알림 도착:", event.data);
+    };
+
+    es.onerror = (err) => {
+      console.error("SSE error:", err);
+      es.close();
+    };
+
+    return () => {
+      es.close();
+    };
+  }, [user]);
 
   const [themeId, setThemeId] = useState("white");
   const activeTheme = useMemo(
@@ -3132,12 +2896,8 @@ export default function MentorMenteePlannerApp() {
   );
 
   const openTaskDetail = (task, dateKey) => {
-<<<<<<< HEAD
-    setDetailTask({ ...task, dateKey });
-=======
     const detailKey = `${dateKey}__${task.id}`;
     setDetailTask({ ...task, dateKey, detailKey });
->>>>>>> c26d24c52c8d9b9d9e087a5e14dadaf9cb154531
     setDetailOpen(true);
   };
 
@@ -3151,13 +2911,8 @@ export default function MentorMenteePlannerApp() {
     [state.menteeId],
   );
 
-<<<<<<< HEAD
-  if (loading) return <div>로딩 중</div>
-  if (!user) return
-=======
   if (loading) return <div>로딩 중</div>;
-  if (!user) return;
->>>>>>> c26d24c52c8d9b9d9e087a5e14dadaf9cb154531
+  if (!user) return null;
 
   return (
     <div
@@ -3188,64 +2943,24 @@ export default function MentorMenteePlannerApp() {
               state={state}
               setState={setState}
               onOpenTask={openTaskDetail}
-<<<<<<< HEAD
-=======
               taskDetailsByKey={taskDetailsByKey}
               setTaskDetailsByKey={setTaskDetailsByKey}
->>>>>>> c26d24c52c8d9b9d9e087a5e14dadaf9cb154531
             />
           ) : (
             <MentorScreen
               state={state}
               setState={setState}
               onOpenTask={openTaskDetail}
-<<<<<<< HEAD
-            />
-          )}
-        </motion.div>
-
-        <footer className="mt-10 rounded-3xl bg-white px-6 py-5 text-sm text-black/60 shadow-sm ring-1 ring-black/5">
-          <div className="flex flex-wrap items-center justify-between gap-3">
-            <div>
-              <div className="font-semibold text-black">
-                다음 단계(백엔드 붙이기)
-              </div>
-              <div className="mt-1">
-                사용자(멘토/멘티) 로그인 → DB에 날짜별 과제/공부시간/피드백 저장
-                → 알림(스케줄러)
-              </div>
-            </div>
-            <div className="flex items-center gap-2">
-              <div className="rounded-2xl bg-black/5 px-3 py-2 text-xs">
-                샘플 멘티: {activeMentee?.name}
-              </div>
-              <div className="rounded-2xl bg-black/5 px-3 py-2 text-xs">
-                UI Prototype
-              </div>
-            </div>
-          </div>
-        </footer>
-=======
               setTaskDetailsByKey={setTaskDetailsByKey}
             />
           )}
         </motion.div>
->>>>>>> c26d24c52c8d9b9d9e087a5e14dadaf9cb154531
       </main>
       <TaskDetailModal
         open={detailOpen}
         onClose={closeTaskDetail}
         role={role}
         task={detailTask}
-<<<<<<< HEAD
-        details={detailTask ? taskDetailsById[detailTask.id] : null}
-        setDetails={(updater) => {
-          if (!detailTask) return;
-          setTaskDetailsById((prev) => {
-            const cur = prev[detailTask.id] || {};
-            const next = typeof updater === "function" ? updater(cur) : updater;
-            return { ...prev, [detailTask.id]: next };
-=======
         details={
           detailTask?.detailKey ? taskDetailsByKey[detailTask.detailKey] : null
         }
@@ -3255,7 +2970,6 @@ export default function MentorMenteePlannerApp() {
             const cur = prev[detailTask.detailKey] || {};
             const next = typeof updater === "function" ? updater(cur) : updater;
             return { ...prev, [detailTask.detailKey]: next };
->>>>>>> c26d24c52c8d9b9d9e087a5e14dadaf9cb154531
           });
         }}
       />
