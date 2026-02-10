@@ -50,7 +50,11 @@ export default function Login() {
         navigate('/planner', {replace: true});
       }
     } catch (err) {
-      setErrorMsg(err);
+      const msg =
+        err && typeof err === "object" && "message" in err
+          ? String(err.message)
+          : String(err);
+      setErrorMsg(msg);
     } finally {
       setLoading(false);
     }
